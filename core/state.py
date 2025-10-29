@@ -1,0 +1,176 @@
+"""
+Модуль Состояния (Фаза 1)
+
+Хранит состояние приложения (замена getDRAWOPT) и использует
+сигналы (замена DRAWOPTListenerManager) для уведомления об изменениях.
+
+Использует 'blinker' для создания сигналов, не зависящих от GUI.
+"""
+
+from blinker import signal
+from . import config  # Импортируем наш config.py
+
+class ApplicationState:
+    """
+    Класс, хранящий полное состояние GUI.
+    При изменении любого @property через .setter,
+    он испускает (sends) сигнал blinker, на который
+    могут подписаться другие части программы (GUI, логгеры и т.д.).
+    """
+    
+    # --- Создаем сигналы для КАЖДОГО поля ---
+    # (Имя сигнала = 'имя_поля_changed')
+    
+    # Input data source
+    gen_changed = signal('gen_changed')
+    
+    # Input params
+    flux_version_changed = signal('flux_version_changed')
+    aux_version_changed = signal('aux_version_changed')
+    pre_version_changed = signal('pre_version_changed')
+    gen_version_changed = signal('gen_version_changed')
+    selection_changed = signal('selection_changed')
+    geo_selection_changed = signal('geo_selection_changed')
+    stdbinning_changed = signal('stdbinning_changed')
+    pitchb_changed = signal('pitchb_changed')
+    lb_changed = signal('lb_changed')
+    eb_changed = signal('eb_changed')
+
+    # Period parameters
+    period_changed = signal('period_changed')
+    tbin_changed = signal('tbin_changed')
+    # ... (добавим остальные по мере необходимости)
+
+    # Plot types parameters
+    plot_kind_changed = signal('plot_kind_changed')
+    what_changed = signal('what_changed')
+    # ... (добавим остальные)
+
+    def __init__(self):
+        """
+        Инициализирует состояние значениями по умолчанию.
+        (Портировано из initializeDRAWOPT)
+        """
+        print("Инициализация ApplicationState...")
+        
+        # --- Приватные переменные для хранения состояния ---
+        self._gen = 1
+        self._flux_version = 'v09'
+        self._aux_version = 'v01'
+        self._pre_version = 'v01'
+        self._gen_version = 'v01'
+        self._selection = 'ItalianH'
+        self._geo_selection = 'RB3'
+        self._stdbinning = 'P3L3E3'
+        self._pitchb = 3
+        self._lb = 3
+        self._eb = 3
+        
+        self._period = ''
+        self._tbin = 'day'
+        
+        self._plot_kind = 1
+        self._what = 1
+        
+        # ... и так далее для всех полей из initializeDRAWOPT ...
+        
+        print("ApplicationState инициализирован.")
+
+    # --- Свойства (Properties) для доступа к полям ---
+    # (Это замена getDRAWOPT(field) и getDRAWOPT(field, value))
+
+    @property
+    def gen(self):
+        return self._gen
+
+    @gen.setter
+    def gen(self, value):
+        if self._gen != value:
+            self._gen = value
+            self.gen_changed.send(self, value=value) # Отправляем сигнал
+
+    @property
+    def flux_version(self):
+        return self._flux_version
+
+    @flux_version.setter
+    def flux_version(self, value):
+        if self._flux_version != value:
+            self._flux_version = value
+            self.flux_version_changed.send(self, value=value)
+
+    @property
+    def selection(self):
+        return self._selection
+
+    @selection.setter
+    def selection(self, value):
+        if self._selection != value:
+            self._selection = value
+            self.selection_changed.send(self, value=value)
+
+    @property
+    def geo_selection(self):
+        return self._geo_selection
+
+    @geo_selection.setter
+    def geo_selection(self, value):
+        if self._geo_selection != value:
+            self._geo_selection = value
+            self.geo_selection_changed.send(self, value=value)
+
+    @property
+    def stdbinning(self):
+        return self._stdbinning
+
+    @stdbinning.setter
+    def stdbinning(self, value):
+        if self._stdbinning != value:
+            self._stdbinning = value
+            self.stdbinning_changed.send(self, value=value)
+
+    @property
+    def pitchb(self):
+        return self._pitchb
+
+    @pitchb.setter
+    def pitchb(self, value):
+        if self._pitchb != value:
+            self._pitchb = value
+            self.pitchb_changed.send(self, value=value)
+
+    @property
+    def lb(self):
+        return self._lb
+
+    @lb.setter
+    def lb(self, value):
+        if self._lb != value:
+            self._lb = value
+            self.lb_changed.send(self, value=value)
+
+    @property
+    def eb(self):
+        return self._eb
+
+    @eb.setter
+    def eb(self, value):
+        if self._eb != value:
+            self._eb = value
+            self.eb_changed.send(self, value=value)
+            
+    # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
+
+    def update_multiple(self, **kwargs):
+        """
+        Обновляет несколько полей сразу, отправляя сигнал 
+        для каждого измененного поля.
+        (Замена updateDRAWOPTAndUI / getDRAWOPT с неск. парами)
+        """
+        print(f"Обновление нескольких полей: {kwargs}")
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                # setattr вызовет @setter, который отправит сигнал
+                setattr(self, key, value)
+            else:
+                print(f"ВНИМАНИЕ: Попытка обновить несуществующее поле '{key}'")

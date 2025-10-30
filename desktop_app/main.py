@@ -10,6 +10,12 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget,
                              QHBoxLayout, QLabel, QVBoxLayout)
 
 # Импортируем наши компоненты Ядра и Клея
+# Нам нужно добавить корневую папку проекта в sys.path,
+# чтобы Python мог найти папку 'core'
+import os
+# Добавляем корневую папку (родителя 'desktop_app') в путь
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 

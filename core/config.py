@@ -116,10 +116,10 @@ def get_unique_stdbinnings(file_path=METADATA_FILE):
 def load_binning_info(file_path=BINNING_INFO_FILE):
     """
     Загружает BinningInfo.mat и воссоздает структуры bininfo и bb.
-    (Портировано из setOptions в DrawTool3.m)
+    (Портировано из setOptions в DrawTool3.m) - ИСПРАВЛЕНАЯ ВЕРСИЯ
     """
     print(f"Загрузка BinningInfo.mat из {file_path}...")
-    # _load_mat_file должен использовать squeeze_me=True, struct_as_record=False
+    # struct_as_record=False важен, чтобы .mat грузился как объект
     bininfo_mat = _load_mat_file(file_path)
     if bininfo_mat is None:
         raise IOError(f"Критическая ошибка: BinningInfo.mat не найден по пути {file_path}")
@@ -131,16 +131,28 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     binningsdesc = ['pitchbdesc', 'Lbindesc', 'Ebindesc']
 
     # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-    # bininfo (оригинальные данные из .mat)
+    # .mat файл содержит переменные 'pitchbin', 'Lbin' и т.д. напрямую,
+    # а не внутри структуры 'bininfo'.
     for b, desc in zip(binnings, binningsdesc):
-        # Используем getattr(object, attribute_name_as_string)
-        bininfo[b] = getattr(bininfo_mat['bininfo'], b)
-        bininfo[desc] = getattr(bininfo_mat['bininfo'], desc)
+        if b not in bininfo_mat:
+            raise KeyError(f"Ключ '{b}' не найден в BinningInfo.mat")
+        if desc not in bininfo_mat:
+            raise KeyError(f"Ключ '{desc}' не найден в BinningInfo.mat")
+            
+        bininfo[b] = bininfo_mat[b]
+        bininfo[desc] = bininfo_mat[desc]
     # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     # Добавляем Rig (конвертация)
     bininfo['Rig'] = []
-    for e_bin_array in bininfo['Ebin']:
+    # Убедимся, что Ebin это список/массив, а не скаляр
+    e_bins_data = bininfo['Ebin']
+    if not isinstance(e_bins_data, (list, np.ndarray)):
+        e_bins_data = [e_bins_data]
+        
+    for e_bin_array in e_bins_data:
+        # Убедимся, что e_bin_array это массив numpy для операций
+        e_bin_array = np.asarray(e_bin_array)
         M = 0.938 * np.ones_like(e_bin_array)
         Z = np.ones_like(e_bin_array)
         rig_array = kinematics.convert_T_to_R(e_bin_array, M, Z, Z)
@@ -150,18 +162,28 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     for i, b_name in enumerate(binnings):
         b_data = bininfo[b_name]
         b_desc = bininfo[b_name]
-        # Убедимся, что b_data это список, даже если в .mat был один элемент
+        
+        # Гарантируем, что b_data и b_desc - это списки
         if not isinstance(b_data, (list, np.ndarray)):
              b_data = [b_data]
         if not isinstance(b_desc, (list, np.ndarray)):
              b_desc = [b_desc]
-             
-        max_len = max(len(arr) for arr in b_data)
+        
+        # Находим максимальную длину *после* того, как убедились, что это списки
+        max_len = 0
+        for arr in b_data:
+            if hasattr(arr, '__len__'):
+                max_len = max(max_len, len(arr))
+            else:
+                max_len = max(max_len, 1) # Если это скаляр
         
         bb_list = []
         
         for j, arr in enumerate(b_data):
             desc = b_desc[j]
+            # Гарантируем, что arr это массив numpy
+            arr = np.atleast_1d(arr)
+            
             # Создаем строки с padding из ''
             row_str = np.array(arr, dtype=str)
             padded_row = np.full(max_len + 1, '', dtype=object)
@@ -171,7 +193,8 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
             
             if b_name == 'Ebin':
                 # Добавляем строку с Жесткостью
-                rig_row = np.array(bininfo['Rig'][j], dtype=str)
+                rig_array = np.atleast_1d(bininfo['Rig'][j])
+                rig_row = np.array(rig_array, dtype=str)
                 padded_rig_row = np.full(max_len + 1, '', dtype=object)
                 padded_rig_row[0] = 'Corresponding rigidities'
                 padded_rig_row[1:len(rig_row)+1] = rig_row

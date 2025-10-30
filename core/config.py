@@ -119,6 +119,7 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     (Портировано из setOptions в DrawTool3.m)
     """
     print(f"Загрузка BinningInfo.mat из {file_path}...")
+    # _load_mat_file должен использовать squeeze_me=True, struct_as_record=False
     bininfo_mat = _load_mat_file(file_path)
     if bininfo_mat is None:
         raise IOError(f"Критическая ошибка: BinningInfo.mat не найден по пути {file_path}")
@@ -129,10 +130,13 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     binnings = ['pitchbin', 'Lbin', 'Ebin']
     binningsdesc = ['pitchbdesc', 'Lbindesc', 'Ebindesc']
 
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
     # bininfo (оригинальные данные из .mat)
     for b, desc in zip(binnings, binningsdesc):
-        bininfo[b] = bininfo_mat['bininfo'].(b)
-        bininfo[desc] = bininfo_mat['bininfo'].(desc)
+        # Используем getattr(object, attribute_name_as_string)
+        bininfo[b] = getattr(bininfo_mat['bininfo'], b)
+        bininfo[desc] = getattr(bininfo_mat['bininfo'], desc)
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
     # Добавляем Rig (конвертация)
     bininfo['Rig'] = []
@@ -145,7 +149,13 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     # bb (структура для GUI, как в MATLAB)
     for i, b_name in enumerate(binnings):
         b_data = bininfo[b_name]
-        b_desc = bininfo[b_desc]
+        b_desc = bininfo[b_name]
+        # Убедимся, что b_data это список, даже если в .mat был один элемент
+        if not isinstance(b_data, (list, np.ndarray)):
+             b_data = [b_data]
+        if not isinstance(b_desc, (list, np.ndarray)):
+             b_desc = [b_desc]
+             
         max_len = max(len(arr) for arr in b_data)
         
         bb_list = []

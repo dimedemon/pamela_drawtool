@@ -3,12 +3,15 @@
 """
 
 import sys
-import os
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, 
+    QHBoxLayout, QVBoxLayout, QLabel
+)
 
+# Импортируем наши компоненты
+# (Это будет работать при запуске через "python -m desktop_app.main")
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
-
-# --- ИМПОРТИРУЕМ НАШ НОВЫЙ ВИДЖЕТ ---
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
 
 class MainWindow(QMainWindow):

@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
-
+from desktop_app.ui_panels.selections import create_selections_widget 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()

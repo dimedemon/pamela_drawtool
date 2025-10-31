@@ -33,7 +33,9 @@ class QtConnector(QObject):
     
     tbin_changed = pyqtSignal(str)
     period_changed = pyqtSignal(str)
-    
+
+    l_changed = pyqtSignal(list)
+    l_max_changed = pyqtSignal(float)
     # (Мы добавим сюда больше сигналов по мере необходимости)
     
     def __init__(self, app_state: ApplicationState):
@@ -65,6 +67,9 @@ class QtConnector(QObject):
         self._app_state.tbin_changed.connect(self._on_tbin_changed)
         self._app_state.period_changed.connect(self._on_period_changed)
 
+        self._app_state.l_changed.connect(self._on_l_changed)
+        self._app_state.l_max_changed.connect(self._on_l_max_changed)
+
     # --- Методы-излучатели (Emitters) ---
     # Эти функции вызываются сигналом blinker и излучают сигнал PyQt
 
@@ -88,3 +93,9 @@ class QtConnector(QObject):
         
     def _on_period_changed(self, sender, **kwargs):
         self.period_changed.emit(kwargs.get('value'))
+
+    def _on_l_changed(self, sender, **kwargs):
+        self.l_changed.emit(kwargs.get('value'))
+        
+    def _on_l_max_changed(self, sender, **kwargs):
+        self.l_max_changed.emit(kwargs.get('value'))

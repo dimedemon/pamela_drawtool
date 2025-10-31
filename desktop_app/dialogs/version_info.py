@@ -3,7 +3,7 @@
 
 Создает диалоговое окно, показывающее таблицу версий и биннингов.
 """
-
+import re
 import numpy as np
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
                              QPushButton, QHBoxLayout, QWidget, QAbstractItemView,

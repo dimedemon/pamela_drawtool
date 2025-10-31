@@ -3,7 +3,7 @@
 
 Создает виджеты для "T bins" и "Period".
 """
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QGroupBox
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QLineEdit, QPushButton, QGroupBox, QVBoxLayout
 from PyQt5.QtCore import QSignalBlocker
 from core import config
 from core.state import ApplicationState

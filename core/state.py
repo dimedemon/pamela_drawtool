@@ -44,6 +44,10 @@ class ApplicationState:
     # Geomagnetic parameters
     l_changed = signal('l_changed')
     l_max_changed = signal('l_max_changed')
+    pitch_changed = signal('pitch_changed')
+    pitch_max_changed = signal('pitch_max_changed')
+    d_alpha_changed = signal('d_alpha_changed')
+    
     
     # (pitch, E, Rig - добавим позже)
     # ... (добавим остальные по мере необходимости)
@@ -81,6 +85,11 @@ class ApplicationState:
         
         self._l = []
         self._l_max = 1000.0
+
+        self._pitch = []
+        self._pitch_max = [] # В MATLAB это было отдельное поле
+        self._d_alpha = 0.0
+        
         # ...
         self._plot_kind = 1
         # ... и так далее для всех полей из initializeDRAWOPT ...
@@ -208,6 +217,36 @@ class ApplicationState:
         if self._l_max != value:
             self._l_max = value
             self.l_max_changed.send(self, value=value)
+
+    @property
+    def pitch(self):
+        return self._pitch
+
+    @pitch.setter
+    def pitch(self, value):
+        if self._pitch != value:
+            self._pitch = value
+            self.pitch_changed.send(self, value=value)
+
+    @property
+    def pitch_max(self):
+        return self._pitch_max
+
+    @pitch_max.setter
+    def pitch_max(self, value):
+        if self._pitch_max != value:
+            self._pitch_max = value
+            self.pitch_max_changed.send(self, value=value)
+
+    @property
+    def d_alpha(self):
+        return self._d_alpha
+
+    @d_alpha.setter
+    def d_alpha(self, value):
+        if self._d_alpha != value:
+            self._d_alpha = value
+            self.d_alpha_changed.send(self, value=value)
     # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
 
     def update_multiple(self, **kwargs):

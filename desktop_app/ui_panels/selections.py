@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QSignalBlocker
 from core import config
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
-
+import numpy as np
 def create_selections_widget(app_state: ApplicationState, connector: QtConnector):
     """
     Создает QGroupBox, содержащий лейбл и два выпадающих списка.

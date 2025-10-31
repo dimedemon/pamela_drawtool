@@ -36,6 +36,10 @@ class QtConnector(QObject):
 
     l_changed = pyqtSignal(list)
     l_max_changed = pyqtSignal(float)
+
+    pitch_changed = pyqtSignal(list)
+    pitch_max_changed = pyqtSignal(list)
+    d_alpha_changed = pyqtSignal(float)
     # (Мы добавим сюда больше сигналов по мере необходимости)
     
     def __init__(self, app_state: ApplicationState):
@@ -70,6 +74,10 @@ class QtConnector(QObject):
         self._app_state.l_changed.connect(self._on_l_changed)
         self._app_state.l_max_changed.connect(self._on_l_max_changed)
 
+        self._app_state.pitch_changed.connect(self._on_pitch_changed)
+        self._app_state.pitch_max_changed.connect(self._on_pitch_max_changed)
+        self._app_state.d_alpha_changed.connect(self._on_d_alpha_changed)
+
     # --- Методы-излучатели (Emitters) ---
     # Эти функции вызываются сигналом blinker и излучают сигнал PyQt
 
@@ -99,3 +107,12 @@ class QtConnector(QObject):
         
     def _on_l_max_changed(self, sender, **kwargs):
         self.l_max_changed.emit(kwargs.get('value'))
+
+    def _on_pitch_changed(self, sender, **kwargs):
+        self.pitch_changed.emit(kwargs.get('value'))
+        
+    def _on_pitch_max_changed(self, sender, **kwargs):
+        self.pitch_max_changed.emit(kwargs.get('value'))
+        
+    def _on_d_alpha_changed(self, sender, **kwargs):
+        self.d_alpha_changed.emit(kwargs.get('value'))

@@ -13,7 +13,9 @@ from PyQt5.QtWidgets import (
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
-from desktop_app.ui_panels.selections import create_selections_widget 
+from desktop_app.ui_panels.selections import create_selections_widget
+from desktop_app.ui_panels.binnings import create_binnings_widget 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -46,11 +48,15 @@ class MainWindow(QMainWindow):
         )
         left_layout.addWidget(self.input_data_source_widget)
         
-        # <--- ДОБАВЛЯЕМ НОВЫЙ ВИДЖЕТ ---
         self.selections_widget = create_selections_widget(
             self.app_state, self.connector
         )
         left_layout.addWidget(self.selections_widget)
+        
+        self.binnings_widget = create_binnings_widget(
+            self.app_state, self.connector
+        )
+        left_layout.addWidget(self.binnings_widget)
         
         left_layout.addStretch()
         

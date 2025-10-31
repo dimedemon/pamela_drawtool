@@ -8,6 +8,7 @@ from PyQt5.QtCore import QSignalBlocker, Qt
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.dialogs.l_bin_dialog import LBinDialog
+from desktop_app.dialogs.pitch_bin_dialog import PitchBinDialog
 
 def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnector, parent_window):
     """
@@ -45,6 +46,23 @@ def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnec
     l_layout.addWidget(edit_delta_l, 1)
     main_layout.addLayout(l_layout)
 
+    pitch_layout = QHBoxLayout()
+    
+    label_pitch = QLabel("α:")
+    edit_pitch_min = QLineEdit()
+    button_show_pitch = QPushButton("...") # Кнопка "ShowPitchbin"
+    button_show_pitch.setFixedWidth(30)
+    edit_pitch_max = QLineEdit()
+    edit_delta_alpha = QLineEdit()
+
+    # Добавляем в макет Pitch
+    pitch_layout.addWidget(label_pitch, 1)
+    pitch_layout.addWidget(edit_pitch_min, 4)
+    pitch_layout.addWidget(button_show_pitch) 
+    pitch_layout.addWidget(edit_pitch_max, 2)
+    pitch_layout.addWidget(edit_delta_alpha, 1)
+    main_layout.addLayout(pitch_layout)
+
     # --- (Здесь будут Макет 2: Pitch, Макет 3: E, Макет 4: R...) ---
     
     # -----------------------------------------------------------------
@@ -75,7 +93,71 @@ def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnec
     edit_l_min.editingFinished.connect(on_l_min_changed)
     edit_l_max.editingFinished.connect(on_l_max_changed)
     # (delta_l пока не привязываем)
+    ##тут вставка
+    def on_pitch_min_changed():
+        txt = edit_pitch_min.text()
+        if txt.lower() == 'all':
+            app_state.pitch = [-1]
+        else:
+            try:
+                pitch_values = [float(val.strip()) for val in txt.split(',') if val.strip()]
+                app_state.pitch = pitch_values
+            except ValueError:
+                on_core_pitch_changed(app_state.pitch)
 
+    def on_pitch_max_changed():
+        txt = edit_pitch_max.text()
+        try:
+            pitch_max_values = [float(val.strip()) for val in txt.split(',') if val.strip()]
+            app_state.pitch_max = pitch_max_values
+        except ValueError:
+            on_core_pitch_max_changed(app_state.pitch_max)
+            
+    def on_d_alpha_changed():
+        try:
+            app_state.d_alpha = float(edit_delta_alpha.text())
+        except ValueError:
+            on_core_d_alpha_changed(app_state.d_alpha)
+    
+    edit_pitch_min.editingFinished.connect(on_pitch_min_changed)
+    edit_pitch_max.editingFinished.connect(on_pitch_max_changed)
+    edit_delta_alpha.editingFinished.connect(on_d_alpha_changed)
+
+    # --- Связь: Ядро -> GUI (Pitch) ---
+
+    def on_core_pitch_changed(new_pitch_list):
+        with QSignalBlocker(edit_pitch_min):
+            if not new_pitch_list:
+                edit_pitch_min.setText("")
+            elif new_pitch_list == [-1]:
+                edit_pitch_min.setText("All")
+            else:
+                txt = ", ".join(f"{val:.1f}" for val in new_pitch_list)
+                edit_pitch_min.setText(txt)
+
+    def on_core_pitch_max_changed(new_pitch_max_list):
+        with QSignalBlocker(edit_pitch_max):
+            if not new_pitch_max_list:
+                edit_pitch_max.setText("")
+            else:
+                txt = ", ".join(f"{val:.1f}" for val in new_pitch_max_list)
+                edit_pitch_max.setText(txt)
+
+    def on_core_d_alpha_changed(new_d_alpha):
+        with QSignalBlocker(edit_delta_alpha):
+            edit_delta_alpha.setText(f"{new_d_alpha:.1f}")
+            
+    connector.pitch_changed.connect(on_core_pitch_changed)
+    connector.pitch_max_changed.connect(on_core_pitch_max_changed)
+    connector.d_alpha_changed.connect(on_core_d_alpha_changed)
+    
+    # --- Кнопка "..." (ShowPitchbin) ---
+    def on_show_pitch_bin():
+        dialog = PitchBinDialog(app_state, parent_window)
+        dialog.exec_()
+        # app_state уже обновлен диалогом
+            
+    button_show_pitch.clicked.connect(on_show_pitch_bin)
     # --- Связь: Ядро -> GUI ---
 
     def on_core_l_changed(new_l_list):
@@ -110,6 +192,9 @@ def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnec
     # 4. Инициализация
     on_core_l_changed(app_state.l)
     on_core_l_max_changed(app_state.l_max)
+    on_core_pitch_changed(app_state.pitch)
+    on_core_pitch_max_changed(app_state.pitch_max)
+    on_core_d_alpha_changed(app_state.d_alpha)
     
     # TODO: Включить/выключить виджеты в зависимости от PlotKind
     # (setGeomagParamEn.m)

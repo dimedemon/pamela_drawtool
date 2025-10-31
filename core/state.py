@@ -303,7 +303,25 @@ class ApplicationState:
     @is_e.setter
     def is_e(self, value):
         if self._is_e != value: self._is_e = value; self.is_e_changed.send(self, value=value)
+    @property
+    def plot_kind(self):
+        return self._plot_kind
 
+    @plot_kind.setter
+    def plot_kind(self, value):
+        if self._plot_kind != value:
+            self._plot_kind = value
+            self.plot_kind_changed.send(self, value=value)
+
+    @property
+    def what(self):
+        return self._what
+
+    @what.setter
+    def what(self, value):
+        if self._what != value:
+            self._what = value
+            self.what_changed.send(self, value=value)
     @property
     def units(self): return self._units
     @units.setter

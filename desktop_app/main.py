@@ -73,10 +73,6 @@ class MainWindow(QMainWindow):
         )
         left_layout.addWidget(self.periods_widget)
         
-        self.geomag_params_widget = create_geomag_params_widget(
-            self.app_state, self.connector, self
-        )
-        left_layout.addWidget(self.geomag_params_widget)
         
         self.plot_controls_widget = create_plot_controls_widget(
             self.app_state, self.connector, self

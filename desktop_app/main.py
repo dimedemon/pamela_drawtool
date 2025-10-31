@@ -14,8 +14,9 @@ from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
 from desktop_app.ui_panels.selections import create_selections_widget
-from desktop_app.ui_panels.versions import create_versions_widget # <--- НОВЫЙ ИМПОРТ
-from desktop_app.ui_panels.binnings import create_binnings_widget 
+from desktop_app.ui_panels.versions import create_versions_widget
+from desktop_app.ui_panels.binnings import create_binnings_widget
+from desktop_app.ui_panels.periods import create_periods_widget
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -63,6 +64,11 @@ class MainWindow(QMainWindow):
             self.app_state, self.connector
         )
         left_layout.addWidget(self.binnings_widget)
+        
+        self.periods_widget = create_periods_widget(
+            self.app_state, self.connector, self
+        )
+        left_layout.addWidget(self.periods_widget)
         
         left_layout.addStretch()
         

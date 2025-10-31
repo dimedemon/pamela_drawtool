@@ -47,7 +47,13 @@ class ApplicationState:
     pitch_changed = signal('pitch_changed')
     pitch_max_changed = signal('pitch_max_changed')
     d_alpha_changed = signal('d_alpha_changed')
-    
+
+    e_changed = signal('e_changed')
+    e_max_changed = signal('e_max_changed')
+    rig_changed = signal('rig_changed')
+    rig_max_changed = signal('rig_max_changed')
+    d_e_changed = signal('d_e_changed')
+    is_e_changed = signal('is_e_changed') # Для E/R биннинга
     
     # (pitch, E, Rig - добавим позже)
     # ... (добавим остальные по мере необходимости)
@@ -89,6 +95,15 @@ class ApplicationState:
         self._pitch = []
         self._pitch_max = [] # В MATLAB это было отдельное поле
         self._d_alpha = 0.0
+
+        # (Портировано из initializeDRAWOPT)
+        self._e = []
+        self._e_max = []
+        self._rig = []
+        self._rig_max = []
+        self._d_e = 0.0
+        self._is_e = True # E=true, R=false
+        self._ror_e = 1   # 1=E, 2=R (для pan01_set03_Binnings)
         
         # ...
         self._plot_kind = 1
@@ -247,8 +262,44 @@ class ApplicationState:
         if self._d_alpha != value:
             self._d_alpha = value
             self.d_alpha_changed.send(self, value=value)
-    # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
 
+    @property
+    def e(self): return self._e
+    @e.setter
+    def e(self, value):
+        if self._e != value: self._e = value; self.e_changed.send(self, value=value)
+
+    @property
+    def e_max(self): return self._e_max
+    @e_max.setter
+    def e_max(self, value):
+        if self._e_max != value: self._e_max = value; self.e_max_changed.send(self, value=value)
+
+    @property
+    def rig(self): return self._rig
+    @rig.setter
+    def rig(self, value):
+        if self._rig != value: self._rig = value; self.rig_changed.send(self, value=value)
+
+    @property
+    def rig_max(self): return self._rig_max
+    @rig_max.setter
+    def rig_max(self, value):
+        if self._rig_max != value: self._rig_max = value; self.rig_max_changed.send(self, value=value)
+
+    @property
+    def d_e(self): return self._d_e
+    @d_e.setter
+    def d_e(self, value):
+        if self._d_e != value: self._d_e = value; self.d_e_changed.send(self, value=value)
+
+    @property
+    def is_e(self): return self._is_e
+    @is_e.setter
+    def is_e(self, value):
+        if self._is_e != value: self._is_e = value; self.is_e_changed.send(self, value=value)
+    # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
+    # (RorE мы пока не используем, но Eb уже есть)
     def update_multiple(self, **kwargs):
         """
         Обновляет несколько полей сразу, отправляя сигнал 

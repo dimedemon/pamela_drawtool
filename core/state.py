@@ -35,10 +35,17 @@ class ApplicationState:
     pitchb_changed = signal('pitchb_changed')
     lb_changed = signal('lb_changed')
     eb_changed = signal('eb_changed')
+    
 
     # Period parameters
     period_changed = signal('period_changed')
     tbin_changed = signal('tbin_changed')
+
+    # Geomagnetic parameters
+    l_changed = signal('l_changed')
+    l_max_changed = signal('l_max_changed')
+    
+    # (pitch, E, Rig - добавим позже)
     # ... (добавим остальные по мере необходимости)
 
     # Plot types parameters
@@ -72,6 +79,10 @@ class ApplicationState:
         self._plot_kind = 1
         self._what = 1
         
+        self._l = []
+        self._l_max = 1000.0
+        # ...
+        self._plot_kind = 1
         # ... и так далее для всех полей из initializeDRAWOPT ...
         
         print("ApplicationState инициализирован.")
@@ -178,7 +189,25 @@ class ApplicationState:
         if self._tbin != value:
             self._tbin = value
             self.tbin_changed.send(self, value=value)
-            
+    @property
+    def l(self):
+        return self._l
+
+    @l.setter
+    def l(self, value):
+        if self._l != value:
+            self._l = value
+            self.l_changed.send(self, value=value)
+
+    @property
+    def l_max(self):
+        return self._l_max
+
+    @l_max.setter
+    def l_max(self, value):
+        if self._l_max != value:
+            self._l_max = value
+            self.l_max_changed.send(self, value=value)
     # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
 
     def update_multiple(self, **kwargs):

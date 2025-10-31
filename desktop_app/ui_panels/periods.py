@@ -51,7 +51,7 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     # --- T Bins ---
     def on_tbins_changed(index):
         tbin_value = config.TBIN_STR[index]
-        app_state.Tbin = tbin_value
+        app_state.tbin = tbin_value
 
     combo_tbins.currentIndexChanged.connect(on_tbins_changed)
 
@@ -81,7 +81,7 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     
     # --- Кнопка "?" ---
     def on_show_periods():
-        tbin = app_state.Tbin
+        tbin = app_state.tbin
         
         if tbin == 'Separate Periods':
             # Показываем диалог "длинных" периодов
@@ -97,7 +97,7 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     button_show_period.clicked.connect(on_show_periods)
 
     # 4. Инициализация
-    on_core_tbin_changed(app_state.Tbin)
-    on_core_period_changed(app_state.Period)
+    on_core_tbin_changed(app_state.tbin)
+    on_core_period_changed(app_state.period)
     
     return widget

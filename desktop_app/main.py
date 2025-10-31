@@ -14,6 +14,7 @@ from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
 from desktop_app.ui_panels.selections import create_selections_widget
+from desktop_app.ui_panels.versions import create_versions_widget # <--- НОВЫЙ ИМПОРТ
 from desktop_app.ui_panels.binnings import create_binnings_widget 
 
 class MainWindow(QMainWindow):
@@ -47,6 +48,11 @@ class MainWindow(QMainWindow):
             self.app_state, self.connector
         )
         left_layout.addWidget(self.input_data_source_widget)
+        
+        self.versions_widget = create_versions_widget(
+            self.app_state, self.connector, self
+        )
+        left_layout.addWidget(self.versions_widget)
         
         self.selections_widget = create_selections_widget(
             self.app_state, self.connector

@@ -158,7 +158,7 @@ class ApplicationState:
         if self._eb != value:
             self._eb = value
             self.eb_changed.send(self, value=value)
-    ////
+    
     @property
     def period(self):
         return self._period

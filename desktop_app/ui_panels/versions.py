@@ -8,7 +8,7 @@ from PyQt5.QtCore import QSignalBlocker
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 # Мы импортируем диалог, который создадим на следующем шаге
-from .dialogs.version_info import VersionInfoDialog
+from desktop_app.dialogs.version_info import VersionInfoDialog
 
 def create_versions_widget(app_state: ApplicationState, connector: QtConnector, parent_window):
     """

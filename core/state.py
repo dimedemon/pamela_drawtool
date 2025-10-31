@@ -54,6 +54,9 @@ class ApplicationState:
     rig_max_changed = signal('rig_max_changed')
     d_e_changed = signal('d_e_changed')
     is_e_changed = signal('is_e_changed') # Для E/R биннинга
+
+    units_changed = signal('units_changed')
+    n_min_changed = signal('n_min_changed')
     
     # (pitch, E, Rig - добавим позже)
     # ... (добавим остальные по мере необходимости)
@@ -104,7 +107,9 @@ class ApplicationState:
         self._d_e = 0.0
         self._is_e = True # E=true, R=false
         self._ror_e = 1   # 1=E, 2=R (для pan01_set03_Binnings)
-        
+
+        self._units = 1 # 0 = MeV, 1 = GeV (из pan02_set02_JunitsNmin)
+        self._n_min = 0 # (из pan02_set02_JunitsNmin)
         # ...
         self._plot_kind = 1
         # ... и так далее для всех полей из initializeDRAWOPT ...
@@ -298,6 +303,18 @@ class ApplicationState:
     @is_e.setter
     def is_e(self, value):
         if self._is_e != value: self._is_e = value; self.is_e_changed.send(self, value=value)
+
+    @property
+    def units(self): return self._units
+    @units.setter
+    def units(self, value):
+        if self._units != value: self._units = value; self.units_changed.send(self, value=value)
+
+    @property
+    def n_min(self): return self._n_min
+    @n_min.setter
+    def n_min(self, value):
+        if self._n_min != value: self._n_min = value; self.n_min_changed.send(self, value=value)
     # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
     # (RorE мы пока не используем, но Eb уже есть)
     def update_multiple(self, **kwargs):

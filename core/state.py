@@ -158,6 +158,26 @@ class ApplicationState:
         if self._eb != value:
             self._eb = value
             self.eb_changed.send(self, value=value)
+    ////
+    @property
+    def period(self):
+        return self._period
+
+    @period.setter
+    def period(self, value):
+        if self._period != value:
+            self._period = value
+            self.period_changed.send(self, value=value)
+
+    @property
+    def tbin(self):
+        return self._tbin
+
+    @tbin.setter
+    def tbin(self, value):
+        if self._tbin != value:
+            self._tbin = value
+            self.tbin_changed.send(self, value=value)
             
     # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
 

@@ -47,6 +47,11 @@ class QtConnector(QObject):
     rig_max_changed = pyqtSignal(list)
     d_e_changed = pyqtSignal(float)
     is_e_changed = pyqtSignal(bool)
+
+    plot_kind_changed = pyqtSignal(int)
+    what_changed = pyqtSignal(int)
+    units_changed = pyqtSignal(int)
+    n_min_changed = pyqtSignal(int)
     # (Мы добавим сюда больше сигналов по мере необходимости)
     
     def __init__(self, app_state: ApplicationState):
@@ -91,6 +96,11 @@ class QtConnector(QObject):
         self._app_state.rig_max_changed.connect(self._on_rig_max_changed)
         self._app_state.d_e_changed.connect(self._on_d_e_changed)
         self._app_state.is_e_changed.connect(self._on_is_e_changed)
+
+        self._app_state.plot_kind_changed.connect(self._on_plot_kind_changed)
+        self._app_state.what_changed.connect(self._on_what_changed)
+        self._app_state.units_changed.connect(self._on_units_changed)
+        self._app_state.n_min_changed.connect(self._on_n_min_changed)
 
     # --- Методы-излучатели (Emitters) ---
     # Эти функции вызываются сигналом blinker и излучают сигнал PyQt
@@ -148,3 +158,15 @@ class QtConnector(QObject):
         
     def _on_is_e_changed(self, sender, **kwargs):
         self.is_e_changed.emit(kwargs.get('value'))
+        
+    def _on_plot_kind_changed(self, sender, **kwargs):
+        self.plot_kind_changed.emit(kwargs.get('value'))
+        
+    def _on_what_changed(self, sender, **kwargs):
+        self.what_changed.emit(kwargs.get('value'))
+        
+    def _on_units_changed(self, sender, **kwargs):
+        self.units_changed.emit(kwargs.get('value'))
+        
+    def _on_n_min_changed(self, sender, **kwargs):
+        self.n_min_changed.emit(kwargs.get('value'))

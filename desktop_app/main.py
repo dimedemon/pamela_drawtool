@@ -41,14 +41,18 @@ class MainWindow(QMainWindow):
         # left_layout.addWidget(QLabel("--- (ЛЕВАЯ ПАНЕЛЬ) ---"))
         # left_layout.addWidget(QLabel("Здесь будут pan00, pan01, pan02..."))
         
-        # Добавляем наш первый портированный виджет!
-        # Он создается и сразу подключается к app_state и connector
         self.input_data_source_widget = create_input_data_source_widget(
             self.app_state, self.connector
         )
         left_layout.addWidget(self.input_data_source_widget)
         
-        left_layout.addStretch() # "Прибивает" все виджеты к верху
+        # <--- ДОБАВЛЯЕМ НОВЫЙ ВИДЖЕТ ---
+        self.selections_widget = create_selections_widget(
+            self.app_state, self.connector
+        )
+        left_layout.addWidget(self.selections_widget)
+        
+        left_layout.addStretch()
         
         
         # --- Правая Панель (Графики) ---

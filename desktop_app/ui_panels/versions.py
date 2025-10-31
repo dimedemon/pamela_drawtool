@@ -23,6 +23,7 @@ def create_versions_widget(app_state: ApplicationState, connector: QtConnector, 
 
     # label = QLabel("Version:") # Лейбл в заголовке
     edit_version = QLineEdit()
+    edit_version.setReadOnly(True)
     button_info = QPushButton("?")
     button_info.setFixedWidth(30) # Делаем кнопку '?' маленькой
     

@@ -40,6 +40,13 @@ class QtConnector(QObject):
     pitch_changed = pyqtSignal(list)
     pitch_max_changed = pyqtSignal(list)
     d_alpha_changed = pyqtSignal(float)
+
+    e_changed = pyqtSignal(list)
+    e_max_changed = pyqtSignal(list)
+    rig_changed = pyqtSignal(list)
+    rig_max_changed = pyqtSignal(list)
+    d_e_changed = pyqtSignal(float)
+    is_e_changed = pyqtSignal(bool)
     # (Мы добавим сюда больше сигналов по мере необходимости)
     
     def __init__(self, app_state: ApplicationState):
@@ -77,6 +84,13 @@ class QtConnector(QObject):
         self._app_state.pitch_changed.connect(self._on_pitch_changed)
         self._app_state.pitch_max_changed.connect(self._on_pitch_max_changed)
         self._app_state.d_alpha_changed.connect(self._on_d_alpha_changed)
+
+        self._app_state.e_changed.connect(self._on_e_changed)
+        self._app_state.e_max_changed.connect(self._on_e_max_changed)
+        self._app_state.rig_changed.connect(self._on_rig_changed)
+        self._app_state.rig_max_changed.connect(self._on_rig_max_changed)
+        self._app_state.d_e_changed.connect(self._on_d_e_changed)
+        self._app_state.is_e_changed.connect(self._on_is_e_changed)
 
     # --- Методы-излучатели (Emitters) ---
     # Эти функции вызываются сигналом blinker и излучают сигнал PyQt
@@ -116,3 +130,21 @@ class QtConnector(QObject):
         
     def _on_d_alpha_changed(self, sender, **kwargs):
         self.d_alpha_changed.emit(kwargs.get('value'))
+
+    def _on_e_changed(self, sender, **kwargs):
+        self.e_changed.emit(kwargs.get('value'))
+        
+    def _on_e_max_changed(self, sender, **kwargs):
+        self.e_max_changed.emit(kwargs.get('value'))
+        
+    def _on_rig_changed(self, sender, **kwargs):
+        self.rig_changed.emit(kwargs.get('value'))
+        
+    def _on_rig_max_changed(self, sender, **kwargs):
+        self.rig_max_changed.emit(kwargs.get('value'))
+        
+    def _on_d_e_changed(self, sender, **kwargs):
+        self.d_e_changed.emit(kwargs.get('value'))
+        
+    def _on_is_e_changed(self, sender, **kwargs):
+        self.is_e_changed.emit(kwargs.get('value'))

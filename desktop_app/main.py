@@ -17,6 +17,7 @@ from desktop_app.ui_panels.selections import create_selections_widget
 from desktop_app.ui_panels.versions import create_versions_widget
 from desktop_app.ui_panels.binnings import create_binnings_widget
 from desktop_app.ui_panels.periods import create_periods_widget
+from desktop_app.ui_panels.geomagnetic_params import create_geomag_params_widget
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -69,6 +70,11 @@ class MainWindow(QMainWindow):
             self.app_state, self.connector, self
         )
         left_layout.addWidget(self.periods_widget)
+        
+        self.geomag_params_widget = create_geomag_params_widget(
+            self.app_state, self.connector, self
+        )
+        left_layout.addWidget(self.geomag_params_widget)
         
         left_layout.addStretch()
         

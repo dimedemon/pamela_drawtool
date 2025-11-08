@@ -87,9 +87,11 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.geomag_params_widget)
         
         left_layout.addStretch()
-        self.plot_button = create_plot_button_widget()
-        left_layout.addWidget(self.plot_button)
-        
+
+        # 1. Мы получаем WIDGET (контейнер)
+        self.plot_button_widget = create_plot_button_widget() 
+        # 2. Мы добавляем WIDGET в макет
+        left_layout.addWidget(self.plot_button_widget)
         # --- Правая Панель (Графики) ---
         # (Пока заглушка)
         right_panel = QWidget()
@@ -106,9 +108,8 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-        
-        # --- ПОДКЛЮЧАЕМ КНОПКУ К ЛОГИКЕ ---
-        self.plot_button.clicked.connect(self.on_plot_button_clicked)
+        # Мы подключаемся к кнопке .plot_button *внутри* виджета
+        self.plot_button_widget.plot_button.clicked.connect(self.on_plot_button_clicked)
         
         print("Главное Окно успешно создано и готово к работе.")
         

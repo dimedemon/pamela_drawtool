@@ -110,7 +110,7 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
     L_indices = _find_bin_indices(L_edges, app_state.l)
     pitch_indices = _find_bin_indices(pitch_edges, app_state.pitch)
     
-    periods = app_state.PamPers # <-- Это еще одна потенциальная ошибка.
+    periods = app_state.pam_pers # <-- Это еще одна потенциальная ошибка.
                                 # В state.py у нас нет PamPers.
                                 # Давайте пока предположим, что это .period
                                 # TODO: Проверить PamPers vs period

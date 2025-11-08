@@ -64,6 +64,8 @@ class ApplicationState:
     # Plot types parameters
     plot_kind_changed = signal('plot_kind_changed')
     what_changed = signal('what_changed')
+    pam_pers_changed = signal('pam_pers_changed')
+    fullday_changed = signal('fullday_changed')
     # ... (добавим остальные)
 
     def __init__(self):

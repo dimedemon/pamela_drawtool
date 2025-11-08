@@ -20,6 +20,7 @@ from desktop_app.ui_panels.periods import create_periods_widget
 from desktop_app.ui_panels.geomagnetic_params import create_geomag_params_widget
 from desktop_app.ui_panels.plot_controls import create_plot_controls_widget 
 from desktop_app.ui_panels.geomagnetic_params import create_geomag_params_widget
+from desktop_app.ui_panels.plot_button import create_plot_button_widget
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -86,16 +87,17 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.geomag_params_widget)
         
         left_layout.addStretch()
-        
+        self.plot_button = create_plot_button_widget()
+        left_layout.addWidget(self.plot_button)
         
         # --- Правая Панель (Графики) ---
+        # (Пока заглушка)
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
-        
-        # TODO: Заменить этот placeholder на холст Matplotlib
-        right_layout.addWidget(QLabel("--- (ПРАВАЯ ПАНЕЛЬ) ---"))
-        right_layout.addWidget(QLabel("Здесь будут графики (ax1, ax2, ax3, ax4)"))
+        self.plot_placeholder = QLabel("--- (ПРАВАЯ ПАНЕЛЬ) ---\nНажмите 'PLOT DATA', чтобы сгенерировать данные.")
+        self.plot_placeholder.setAlignment(Qt.AlignCenter)
+        right_layout.addWidget(self.plot_placeholder)
         
         # --- Собираем макет ---
         main_layout.addWidget(left_panel, 1) 
@@ -105,8 +107,41 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
         
-        print("Главное Окно успешно создано.")
-
+        # --- ПОДКЛЮЧАЕМ КНОПКУ К ЛОГИКЕ ---
+        self.plot_button.clicked.connect(self.on_plot_button_clicked)
+        
+        print("Главное Окно успешно создано и готово к работе.")
+        
+    def on_plot_button_clicked(self):
+        """
+        Главный триггер! Вызывается при нажатии на "PLOT DATA".
+        """
+        print("\n===================================")
+        print("Кнопка PLOT нажата!")
+        print("Собираем данные из app_state...")
+        
+        try:
+            # 1. Вызываем наш научный бэкенд
+            # (Пока мы передаем ax_index=0, т.к. у нас одна область)
+            plot_data_list = processing.get_plot_data(self.app_state, ax_index=0)
+            
+            # 2. Отображаем результат (пока в консоли)
+            if not plot_data_list:
+                print(">>> processing.py вернул ПУСТОЙ список.")
+                print("   (Возможно, этот тип графика еще не портирован в core/processing.py)")
+                self.plot_placeholder.setText("Данные не сгенерированы.\n(Этот тип графика еще не портирован в processing.py)")
+            else:
+                print(f">>> processing.py успешно вернул {len(plot_data_list)} набор(а) данных.")
+                # (Просто выводим первый)
+                print(plot_data_list[0]) 
+                self.plot_placeholder.setText(f"Данные успешно сгенерированы!\n\n{plot_data_list[0]['label']}\n...")
+        
+        except Exception as e:
+            print(f"!!! КРИТИЧЕСКАЯ ОШИБКА в core/processing.py: {e}")
+            # TODO: Показать эту ошибку в GUI
+            self.plot_placeholder.setText(f"ОШИБКА:\n{e}")
+            
+        print("===================================\n")
 # --- (остальная часть __main__ остается без изменений) ---
 if __name__ == "__main__":
     try:

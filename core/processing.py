@@ -31,7 +31,7 @@ def _build_data_path(app_state: state.ApplicationState):
     """
     
     # Определяем 'er' (E или R биннинг)
-    if app_state.RorE == 2: # TODO: Проверить RorE (в pan04_set03_E это 1=E, 2=R)
+    if app_state.ror_e == 2: # TODO: Проверить ror_e (в pan04_set03_E это 1=E, 2=R)
         er = f"R{app_state.Eb}"
     else:
         er = f"E{app_state.Eb}"
@@ -87,7 +87,7 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
     L_edges = config.BIN_INFO['Lbin'][app_state.Lb - 1]
     pitch_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
     
-    if app_state.RorE == 1: # E
+    if app_state.ror_e == 1: # E
         E_edges = config.BIN_INFO['Ebin'][app_state.Eb - 1]
         E_centers = (E_edges[:-1] + E_edges[1:]) / 2
         dE = (E_edges[1:] - E_edges[:-1]) / 2

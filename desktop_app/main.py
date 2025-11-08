@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
 # Импортируем наши компоненты
 # (Это будет работать при запуске через "python -m desktop_app.main")
 from core.state import ApplicationState
+from core import processing
 from desktop_app.qt_connector import QtConnector
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
 from desktop_app.ui_panels.selections import create_selections_widget

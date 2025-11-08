@@ -22,6 +22,7 @@ from desktop_app.ui_panels.geomagnetic_params import create_geomag_params_widget
 from desktop_app.ui_panels.plot_controls import create_plot_controls_widget 
 from desktop_app.ui_panels.geomagnetic_params import create_geomag_params_widget
 from desktop_app.ui_panels.plot_button import create_plot_button_widget
+from desktop_app.matplotlib_widget import MplCanvas
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -98,9 +99,12 @@ class MainWindow(QMainWindow):
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
-        self.plot_placeholder = QLabel("--- (ПРАВАЯ ПАНЕЛЬ) ---\nНажмите 'PLOT DATA', чтобы сгенерировать данные.")
-        self.plot_placeholder.setAlignment(Qt.AlignCenter)
-        right_layout.addWidget(self.plot_placeholder)
+        
+        # --- ИСПРАВЛЕНИЕ: Заменяем QLabel на MplCanvas ---
+        # self.plot_placeholder = QLabel("...")
+        # right_layout.addWidget(self.plot_placeholder)
+        self.plot_canvas = MplCanvas(self) # Создаем наш холст
+        right_layout.addWidget(self.plot_canvas) # Добавляем его
         
         # --- Собираем макет ---
         main_layout.addWidget(left_panel, 1) 

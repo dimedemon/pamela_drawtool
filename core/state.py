@@ -112,8 +112,11 @@ class ApplicationState:
 
         self._units = 1 # 0 = MeV, 1 = GeV (из pan02_set02_JunitsNmin)
         self._n_min = 0 # (из pan02_set02_JunitsNmin)
+        self._pam_pers = [200] # (Список дней, по умолчанию 200)
+        self._fullday = True   # (По умолчанию True)
         # ...
         self._plot_kind = 1
+        
         # ... и так далее для всех полей из initializeDRAWOPT ...
         
         print("ApplicationState инициализирован.")

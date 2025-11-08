@@ -352,6 +352,25 @@ class ApplicationState:
         if self._n_min != value: self._n_min = value; self.n_min_changed.send(self, value=value)
     # ... (нужно будет добавить сеттеры/геттеры для ВСЕХ полей) ...
     # (RorE мы пока не используем, но Eb уже есть)
+    @property
+    def pam_pers(self):
+        return self._pam_pers
+        
+    @pam_pers.setter
+    def pam_pers(self, value):
+        if self._pam_pers != value:
+            self._pam_pers = value
+            self.pam_pers_changed.send(self, value=value)
+
+    @property
+    def fullday(self):
+        return self._fullday
+        
+    @fullday.setter
+    def fullday(self, value):
+        if self._fullday != value:
+            self._fullday = value
+            self.fullday_changed.send(self, value=value)
     def update_multiple(self, **kwargs):
         """
         Обновляет несколько полей сразу, отправляя сигнал 

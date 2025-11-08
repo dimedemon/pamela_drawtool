@@ -304,6 +304,18 @@ class ApplicationState:
     def is_e(self, value):
         if self._is_e != value: self._is_e = value; self.is_e_changed.send(self, value=value)
     @property
+    def ror_e(self):
+        return self._ror_e
+
+    @ror_e.setter
+    def ror_e(self, value):
+        if self._ror_e != value:
+            self._ror_e = value
+            # (Мы пока не создавали сигнал ror_e_changed,
+            # так как он используется только для binnings,
+            # но можем добавить его позже, если понадобится)
+            pass
+    @property
     def plot_kind(self):
         return self._plot_kind
 

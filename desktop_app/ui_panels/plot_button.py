@@ -1,5 +1,5 @@
 """
-Виджет для кнопки "Plot"
+Виджет для кнопки "Plot" (ИСПРАВЛЕННЫЙ)
 """
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton
 from PyQt5.QtGui import QFont
@@ -7,6 +7,7 @@ from PyQt5.QtGui import QFont
 def create_plot_button_widget():
     """
     Создает QWidget, содержащий большую кнопку "PLOT".
+    Возвращает: QWidget
     """
     widget = QWidget()
     layout = QVBoxLayout()
@@ -19,11 +20,14 @@ def create_plot_button_widget():
     font = button_plot.font()
     font.setPointSize(14)
     font.setBold(True)
-    button_plot.setFont(font)
     button_plot.setMinimumHeight(40) # Зададим минимальную высоту
     
     layout.addWidget(button_plot)
     
-    # Мы не возвращаем widget, мы возвращаем саму кнопку,
-    # чтобы main.py мог напрямую подключиться к ее .clicked
-    return button_plot
+    # --- ИСПРАВЛЕНИЕ ---
+    # Сохраняем кнопку как атрибут виджета,
+    # чтобы main.py мог до нее "достучаться"
+    widget.plot_button = button_plot 
+    
+    # Возвращаем WIDGET (контейнер), а не кнопку
+    return widget

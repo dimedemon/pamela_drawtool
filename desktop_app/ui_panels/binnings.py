@@ -93,24 +93,36 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
             on_binnings_changed(first_available_idx)
             return
 
-        # Парсим P(d)L(d)E(d)
-        matches = re.match(r'P(\d+)L(\d+)E(\d+)', selected_binning)
+        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        
+        # Парсим P(d)L(d)[E/R](d)
+        # Эта regex теперь ищет P, L, (E или R), и Eb/Rb
+        matches = re.match(r'P(\d+)L(\d+)([ER])(\d+)', selected_binning)
         
         if matches:
             # Обновляем все поля в app_state
             app_state.update_multiple(
                 stdbinning=selected_binning,
                 pitchb=int(matches.group(1)),
-                Lb=int(matches.group(2)),
-                Eb=int(matches.group(3))
+                lb=int(matches.group(2)),     # <-- ИСПРАВЛЕНО: маленькая 'lb'
+                ror_e=1 if matches.group(3) == 'E' else 2, # <-- ДОБАВЛЕНО: 1=E, 2=R
+                eb=int(matches.group(4))      # <-- ИСПРАВЛЕНО: маленькая 'eb'
             )
         else:
-            app_state.stdbinning = selected_binning
-
-    combo_binnings.currentIndexChanged.connect(on_binnings_changed)
-
-    # --- Связь: Ядро -> GUI ---
-
+            # Запасной вариант для старых форматов (если 'R' не указан, считаем 'E')
+            matches_E = re.match(r'P(\d+)L(\d+)E(\d+)', selected_binning)
+            if matches_E:
+                app_state.update_multiple(
+                    stdbinning=selected_binning,
+                    pitchb=int(matches_E.group(1)),
+                    lb=int(matches_E.group(2)),     # <-- ИСПРАВЛЕНО: маленькая 'lb'
+                    ror_e=1, # По умолчанию 1 = E
+                    eb=int(matches_E.group(3))      # <-- ИСПРАВЛЕНО: маленькая 'eb'
+                )
+            else:
+                # Если не распознали, обновляем только строку
+                app_state.stdbinning = selected_binning
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     def on_core_stdbinning_changed(new_stdbinning):
         """
         Вызывается, когда ЯДРО меняет stdbinning.

@@ -104,25 +104,26 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
         x_data, dx_data = R_centers, dR
         x_label = "R, GV"
 
-    # --- ИСПРАВЛЕНИЕ: .l, .pitch, .PamPers, .tbin, .period ---
+    # --- ИСПРАВЛЕНИЕ: .l, .pitch, .pam_pers, .tbin, .period ---
     
     # Находим индексы L и pitch
     L_indices = _find_bin_indices(L_edges, app_state.l)
     pitch_indices = _find_bin_indices(pitch_edges, app_state.pitch)
     
-    periods = app_state.pam_pers # <-- Это еще одна потенциальная ошибка.
-                                # В state.py у нас нет PamPers.
-                                # Давайте пока предположим, что это .period
-                                # TODO: Проверить PamPers vs period
+    # --- ИСПРАВЛЕНИЕ: Используем .pam_pers ---
+    periods = app_state.pam_pers 
     
     if app_state.tbin == 'Separate Periods':
         periods = [app_state.period] # один файл
     else:
         # TODO: Логика для PamPers (списка дней)
         # ВРЕМЕННАЯ ЗАГЛУШКА:
-        print("ВНИМАНИЕ: Логика для списка дней (PamPers) еще не реализована.")
-        periods = [200] # Хардкодим 200-й день для теста
-        pass
+        if not periods: # Если список пустой, используем хардкод
+            print("ВНИМАНИЕ: app_state.pam_pers пуст. Используется [200] для теста.")
+            periods = [200] # Хардкодим 200-й день для теста
+        else:
+            print(f"Используются дни/периоды: {periods}")
+        
 
     # --- Цикл по периодам (дням) ---
     for period in periods:
@@ -135,53 +136,59 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
         # Загрузка данных (Jday, J, numevday, numevu...)
         
         # --- ИСПРАВЛЕНИЕ: .fullday ---
-        if app_state.fullday: # <-- Это еще одна потенциальная ошибка.
-                             # Давайте добавим .fullday в state.py
+        if app_state.fullday: 
             
-            # --- ВРЕМЕННАЯ ЗАГЛУШКА: Предполагаем, что fullday=True ---
-            if True:
-                JJ = data.Jday
-                dJJ = data.dJday
-                NN = data.numevday
-                
-                # --- Цикл по L-бинам ---
-                for l_idx in np.unique(L_indices):
-                    # --- Цикл по Pitch-бинам ---
-                    for p_idx in np.unique(pitch_indices):
-                        
-                        # Извлечение данных (J(L, R, P))
-                        y_data = JJ[l_idx, :, p_idx]
-                        y_err = dJJ[l_idx, :, p_idx]
-                        n_events = NN[l_idx, :, p_idx]
-                        
-                        # --- ИСПРАВЛЕНИЕ: .n_min ---
-                        valid_indices = (n_events > app_state.n_min)
-                        
-                        if not np.any(valid_indices):
-                            continue
-                            
-                        # Создание лейбла
-                        label = (f"L=[{L_edges[l_idx]:.2f}-{L_edges[l_idx+1]:.2f}], "
-                                 f"P=[{pitch_edges[p_idx]:.0f}-{pitch_edges[p_idx+1]:.0f}] deg, "
-                                 f"Day={period}")
-                        
-                        # --- ИСПРАВЛЕНИЕ: .units ---
-                        # Упаковка данных для графика
-                        plot_data_list.append({
-                            "ax_index": ax_index,
-                            "plot_type": "errorbar",
-                            "x": x_data[valid_indices],
-                            "y": y_data[valid_indices],
-                            "x_err": dx_data[valid_indices],
-                            "y_err": y_err[valid_indices],
-                            "label": label,
-                            "xlabel": x_label,
-                            "ylabel": "J, (GeV m^2 Sr s)^-1" if app_state.units == 1 else "J, (MeV cm^2 Sr s)^-1",
-                            "xscale": "log",
-                            "yscale": "log"
-                        })
+            try:
+                JJ = data['Jday']
+                dJJ = data['dJday']
+                NN = data['numevday']
+            except KeyError as e:
+                print(f"ОШИБКА: В файле .mat отсутствует ключ: {e}")
+                # Возвращаем пустой список, если данные не найдены
+                return []
             
+            # --- Цикл по L-бинам ---
+            for l_idx in np.unique(L_indices):
+                # --- Цикл по Pitch-бинам ---
+                for p_idx in np.unique(pitch_indices):
+                    
+                    # Извлечение данных (J(L, R, P))
+                    y_data = JJ[l_idx, :, p_idx]
+                    y_err = dJJ[l_idx, :, p_idx]
+                    n_events = NN[l_idx, :, p_idx]
+                    
+                    # --- ИСПРАВЛЕНИЕ: .n_min ---
+                    valid_indices = (n_events > app_state.n_min)
+                    
+                    if not np.any(valid_indices):
+                        continue
+                        
+                    # Создание лейбла
+                    label = (f"L=[{L_edges[l_idx]:.2f}-{L_edges[l_idx+1]:.2f}], "
+                             f"P=[{pitch_edges[p_idx]:.0f}-{pitch_edges[p_idx+1]:.0f}] deg, "
+                             f"Day={period}")
+                    
+                    # --- ИСПРАВЛЕНИЕ: .units ---
+                    # Упаковка данных для графика
+                    plot_data_list.append({
+                        "ax_index": ax_index,
+                        "plot_type": "errorbar",
+                        "x": x_data[valid_indices],
+                        "y": y_data[valid_indices],
+                        "x_err": dx_data[valid_indices],
+                        "y_err": y_err[valid_indices],
+                        "label": label,
+                        "xlabel": x_label,
+                        "ylabel": "J, (GeV m^2 Sr s)^-1" if app_state.units == 1 else "J, (MeV cm^2 Sr s)^-1",
+                        "xscale": "log",
+                        "yscale": "log"
+                    })
+        
+        else:
+            # --- ИСПРАВЛЕНИЕ: .fullday ---
+            print("ВНИМАНИЕ: Логика для 'passes' (fullday=False) еще не реализована.")
             # ... (здесь должна быть логика для 'passes' (не fullday)) ...
+            pass
 
     return plot_data_list
 

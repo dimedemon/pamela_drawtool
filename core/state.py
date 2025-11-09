@@ -83,8 +83,8 @@ class ApplicationState:
         self._gen_version = 'v01'
         self._selection = 'ItalianH'
         self._geo_selection = 'RB3'
-        self._stdbinning = 'P3L3E3'
-        self._pitchb = 3
+        self._stdbinning = 'P3L3E4'
+        self._pitchb = 4
         self._lb = 3
         self._eb = 3
         

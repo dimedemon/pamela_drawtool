@@ -118,37 +118,51 @@ class MainWindow(QMainWindow):
         
         print("Главное Окно успешно создано и готово к работе.")
         
+
     def on_plot_button_clicked(self):
         """
         Главный триггер! Вызывается при нажатии на "PLOT DATA".
+        (ИСПРАВЛЕНА ОБРАБОТКА ОШИБOК)
         """
         print("\n===================================")
         print("Кнопка PLOT нажата!")
         print("Собираем данные из app_state...")
         
         try:
-            # 1. Вызываем наш научный бэкенд
-            # (Пока мы передаем ax_index=0, т.к. у нас одна область)
+            # 1. Очищаем старые графики
+            self.plot_canvas.clear_all_axes()
+            
+            # 2. Вызываем наш научный бэкенд
             plot_data_list = processing.get_plot_data(self.app_state, ax_index=0)
             
-            # 2. Отображаем результат (пока в консоли)
+            # 3. Рисуем результат
             if not plot_data_list:
                 print(">>> processing.py вернул ПУСТОЙ список.")
-                print("   (Возможно, этот тип графика еще не портирован в core/processing.py)")
-                self.plot_placeholder.setText("Данные не сгенерированы.\n(Этот тип графика еще не портирован в processing.py)")
+                # --- ИСПРАВЛЕНИЕ ---
+                # Рисуем сообщение на холсте, а не в plot_placeholder
+                self.plot_canvas.ax1.text(0.5, 0.5, 
+                                          "Данные не сгенерированы.\n(processing.py вернул пустой список)", 
+                                          ha='center', va='center', 
+                                          transform=self.plot_canvas.ax1.transAxes)
+                self.plot_canvas.canvas.draw()
+                # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
             else:
                 print(f">>> processing.py успешно вернул {len(plot_data_list)} набор(а) данных.")
-                # (Просто выводим первый)
-                print(plot_data_list[0]) 
-                self.plot_placeholder.setText(f"Данные успешно сгенерированы!\n\n{plot_data_list[0]['label']}\n...")
+                # Рисуем каждый набор данных
+                for plot_data in plot_data_list:
+                    self.plot_canvas.draw_plot(plot_data)
         
         except Exception as e:
             print(f"!!! КРИТИЧЕСКАЯ ОШИБКА в core/processing.py: {e}")
-            # TODO: Показать эту ошибку в GUI
-            self.plot_placeholder.setText(f"ОШИБКА:\n{e}")
+            # --- ИСПРАВЛЕНИЕ ---
+            # Рисуем ошибку на холсте, а не в plot_placeholder
+            self.plot_canvas.ax1.text(0.5, 0.5, f"ОШИБКА:\n{e}", 
+                                      ha='center', va='center', color='red',
+                                      transform=self.plot_canvas.ax1.transAxes)
+            self.plot_canvas.canvas.draw()
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
             
         print("===================================\n")
-# --- (остальная часть __main__ остается без изменений) ---
 if __name__ == "__main__":
     try:
         from PyQt5.QtCore import Qt

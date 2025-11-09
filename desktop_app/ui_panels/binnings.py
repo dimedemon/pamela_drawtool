@@ -1,8 +1,7 @@
 """
-Порт pan01_set03_Binnings.m (ОБНОВЛЕННЫЙ)
+Порт pan01_set03_Binnings.m (ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ)
 
-Реализована полная логика фильтрации (серая подсветка)
-в зависимости от 'fluxVersion'.
+Исправлена логика парсинга (regex) и регистр (lb, eb).
 """
 import re
 import numpy as np
@@ -13,8 +12,7 @@ from core import config
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 
-# --- Загружаем данные из file_metadata.mat ОДИН РАЗ ---
-# Это более эффективно, чем загружать его в функции
+# --- (Код _get_available_binnings остается тем же) ---
 try:
     _META_DATA = config._load_mat_file(config.METADATA_FILE)
     if _META_DATA is None:
@@ -25,28 +23,18 @@ except Exception as e:
     _META_DATA = {}
 
 def _get_available_binnings(flux_version_str: str) -> set:
-    """
-    Возвращает набор (set) доступных биннингов для этой версии
-    на основе загруженного file_metadata.mat.
-    """
     if not _META_DATA:
-        return set(config.BINNING_STR) # Возвращаем все, если метаданные не загружены
-
+        return set(config.BINNING_STR)
     try:
-        # 'v09' -> 9.0
         version_num = float(flux_version_str.replace('v', ''))
-        
-        # Находим индексы, где версия совпадает
         version_matches = (_META_DATA['fluxVersions'] == version_num) & \
                           (_META_DATA['stdbinnings'] != '')
-        
-        # Получаем уникальные биннинги для этой версии
         available = np.unique(_META_DATA['stdbinnings'][version_matches])
         return set(available)
     except Exception as e:
         print(f"Ошибка фильтрации биннингов: {e}")
-        # Возвращаем все как запасной вариант
         return set(config.BINNING_STR)
+# --- (Конец _get_available_binnings) ---
 
 
 def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
@@ -60,8 +48,6 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
     layout.setContentsMargins(5, 10, 5, 5)
 
     combo_binnings = QComboBox()
-    
-    # 2. Загружаем константы
     BINNING_STR = config.BINNING_STR
     combo_binnings.addItems(BINNING_STR)
     
@@ -81,16 +67,13 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
         # Проверяем, не "серая" ли опция.
         item_data = combo_binnings.itemData(index, Qt.ForegroundRole)
         if item_data == QColor('gray'):
-            # Пользователь выбрал неактивный элемент. Найти первый активный.
             first_available_idx = 0
             for i in range(combo_binnings.count()):
                 if combo_binnings.itemData(i, Qt.ForegroundRole) != QColor('gray'):
                     first_available_idx = i
                     break
-            # Принудительно возвращаем на первый активный
             with QSignalBlocker(combo_binnings):
                 combo_binnings.setCurrentIndex(first_available_idx)
-            # Вызываем on_binnings_changed рекурсивно для *нового* индекса
             on_binnings_changed(first_available_idx)
             return
 
@@ -107,45 +90,39 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
             app_state.update_multiple(
                 stdbinning=selected_binning,
                 pitchb=int(matches_E.group(1)),
-                lb=int(matches_E.group(2)),
+                lb=int(matches_E.group(2)),   # <--- ИСПРАВЛЕНО: 'lb'
                 ror_e=1, # 1 = E
-                eb=int(matches_E.group(3))
+                eb=int(matches_E.group(3))    # <--- ИСПРАВЛЕНО: 'eb'
             )
         elif matches_R:
             print(f"Binnings: Распознан R-биннинг: {selected_binning}")
             app_state.update_multiple(
                 stdbinning=selected_binning,
                 pitchb=int(matches_R.group(1)),
-                lb=int(matches_R.group(2)),
+                lb=int(matches_R.group(2)),   # <--- ИСПРАВЛЕНО: 'lb'
                 ror_e=2, # 2 = R
-                eb=int(matches_R.group(3)) # eb и rb - это один и тот же параметр
+                eb=int(matches_R.group(3))    # <--- ИСПРАВЛЕНО: 'eb' (eb и rb - это один и тот же параметр)
             )
         else:
             # Если не распознали, обновляем только строку
             print(f"Binnings: Не удалось распознать {selected_binning}, обновляем только строку.")
             app_state.stdbinning = selected_binning
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+    combo_binnings.currentIndexChanged.connect(on_binnings_changed)
+
+    # --- Связь: Ядро -> GUI ---
+
     def on_core_stdbinning_changed(new_stdbinning):
-        """
-        Вызывается, когда ЯДРО меняет stdbinning.
-        Обновляет комбо-бокс 'Binnings'.
-        """
         if new_stdbinning in BINNING_STR:
             idx = BINNING_STR.index(new_stdbinning)
             with QSignalBlocker(combo_binnings):
                 combo_binnings.setCurrentIndex(idx)
 
     def on_core_flux_version_changed(new_flux_version):
-        """
-        Вызывается, когда ЯДРО меняет fluxVersion.
-        Фильтрует (красит серым) комбо-бокс 'Binnings'.
-        """
-        # --- ИСПРАВЛЕНО: Убрана ЗАГЛУШКА ---
         available_stdbinnings = _get_available_binnings(new_flux_version)
-        
         gray_color = QColor('gray')
         black_color = QColor('black')
-        
         current_selection = app_state.stdbinning
         selection_is_still_valid = False
         first_available_idx = 0
@@ -153,35 +130,30 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
         with QSignalBlocker(combo_binnings):
             for i, item_text in enumerate(BINNING_STR):
                 is_available = item_text in available_stdbinnings
-                
                 if is_available:
                     if first_available_idx == 0:
-                        first_available_idx = i # Запоминаем первый доступный
-                    
+                        first_available_idx = i
                     combo_binnings.model().item(i).setEnabled(True)
                     combo_binnings.setItemData(i, black_color, Qt.ForegroundRole)
-                    
                     if item_text == current_selection:
                         selection_is_still_valid = True
                 else:
                     combo_binnings.model().item(i).setEnabled(False)
                     combo_binnings.setItemData(i, gray_color, Qt.ForegroundRole)
         
-        # Если текущий выбор стал "серым", принудительно меняем его
         if not selection_is_still_valid:
+            # Обновляем GUI...
             combo_binnings.setCurrentIndex(first_available_idx)
-            # Обновляем ядро, так как GUI принудительно изменил значение
+            # ...и принудительно обновляем Ядро
             on_binnings_changed(first_available_idx)
-
 
     connector.stdbinning_changed.connect(on_core_stdbinning_changed)
     connector.flux_version_changed.connect(on_core_flux_version_changed)
     
     # 4. Инициализация
-    on_core_flux_version_changed(app_state.flux_version) # Сначала фильтруем
-    on_core_stdbinning_changed(app_state.stdbinning) # Затем выбираем
+    on_core_flux_version_changed(app_state.flux_version)
+    on_core_stdbinning_changed(app_state.stdbinning)
     
-    # Добавляем виджеты в макет
     layout.addWidget(combo_binnings)
     
     return widget

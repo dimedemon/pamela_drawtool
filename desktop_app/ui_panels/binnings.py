@@ -72,6 +72,7 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
     # --- Связь: GUI -> Ядро ---
     
     def on_binnings_changed(index):
+        """Вызывается, когда пользователь меняет биннинг в GUI."""
         if index < 0:
             return
             
@@ -93,35 +94,36 @@ def create_binnings_widget(app_state: ApplicationState, connector: QtConnector):
             on_binnings_changed(first_available_idx)
             return
 
-        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        # --- ИСПРАВЛЕННАЯ ЛОГИКА ПАРСИНГА ---
         
-        # Парсим P(d)L(d)[E/R](d)
-        # Эта regex теперь ищет P, L, (E или R), и Eb/Rb
-        matches = re.match(r'P(\d+)L(\d+)([ER])(\d+)', selected_binning)
+        # Пытаемся распознать '...E...' (Energy)
+        matches_E = re.match(r'P(\d+)L(\d+)E(\d+)', selected_binning)
         
-        if matches:
-            # Обновляем все поля в app_state
+        # Пытаемся распознать '...R...' (Rigidity)
+        matches_R = re.match(r'P(\d+)L(\d+)R(\d+)', selected_binning)
+
+        if matches_E:
+            print(f"Binnings: Распознан E-биннинг: {selected_binning}")
             app_state.update_multiple(
                 stdbinning=selected_binning,
-                pitchb=int(matches.group(1)),
-                lb=int(matches.group(2)),     # <-- ИСПРАВЛЕНО: маленькая 'lb'
-                ror_e=1 if matches.group(3) == 'E' else 2, # <-- ДОБАВЛЕНО: 1=E, 2=R
-                eb=int(matches.group(4))      # <-- ИСПРАВЛЕНО: маленькая 'eb'
+                pitchb=int(matches_E.group(1)),
+                lb=int(matches_E.group(2)),
+                ror_e=1, # 1 = E
+                eb=int(matches_E.group(3))
+            )
+        elif matches_R:
+            print(f"Binnings: Распознан R-биннинг: {selected_binning}")
+            app_state.update_multiple(
+                stdbinning=selected_binning,
+                pitchb=int(matches_R.group(1)),
+                lb=int(matches_R.group(2)),
+                ror_e=2, # 2 = R
+                eb=int(matches_R.group(3)) # eb и rb - это один и тот же параметр
             )
         else:
-            # Запасной вариант для старых форматов (если 'R' не указан, считаем 'E')
-            matches_E = re.match(r'P(\d+)L(\d+)E(\d+)', selected_binning)
-            if matches_E:
-                app_state.update_multiple(
-                    stdbinning=selected_binning,
-                    pitchb=int(matches_E.group(1)),
-                    lb=int(matches_E.group(2)),     # <-- ИСПРАВЛЕНО: маленькая 'lb'
-                    ror_e=1, # По умолчанию 1 = E
-                    eb=int(matches_E.group(3))      # <-- ИСПРАВЛЕНО: маленькая 'eb'
-                )
-            else:
-                # Если не распознали, обновляем только строку
-                app_state.stdbinning = selected_binning
+            # Если не распознали, обновляем только строку
+            print(f"Binnings: Не удалось распознать {selected_binning}, обновляем только строку.")
+            app_state.stdbinning = selected_binning
         # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
     def on_core_stdbinning_changed(new_stdbinning):
         """

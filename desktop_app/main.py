@@ -6,7 +6,6 @@ import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, 
     QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QButtonGroup)
-)
 
 # Импортируем наши компоненты
 # (Это будет работать при запуске через "python -m desktop_app.main")

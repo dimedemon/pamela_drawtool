@@ -33,6 +33,8 @@ class QtConnector(QObject):
     
     tbin_changed = pyqtSignal(str)
     period_changed = pyqtSignal(str)
+    pam_pers_changed = pyqtSignal(list)
+    fullday_changed = pyqtSignal(bool)
 
     l_changed = pyqtSignal(list)
     l_max_changed = pyqtSignal(float)
@@ -82,7 +84,8 @@ class QtConnector(QObject):
 
         self._app_state.tbin_changed.connect(self._on_tbin_changed)
         self._app_state.period_changed.connect(self._on_period_changed)
-
+        self._app_state.pam_pers_changed.connect(self._on_pam_pers_changed)
+        self._app_state.fullday_changed.connect(self._on_fullday_changed)
         self._app_state.l_changed.connect(self._on_l_changed)
         self._app_state.l_max_changed.connect(self._on_l_max_changed)
 
@@ -125,7 +128,10 @@ class QtConnector(QObject):
         
     def _on_period_changed(self, sender, **kwargs):
         self.period_changed.emit(kwargs.get('value'))
-
+    def _on_pam_pers_changed(self, sender, **kwargs): 
+        self.pam_pers_changed.emit(kwargs.get('value'))
+    def _on_fullday_changed(self, sender, **kwargs): 
+        self.fullday_changed.emit(kwargs.get('value'))
     def _on_l_changed(self, sender, **kwargs):
         self.l_changed.emit(kwargs.get('value'))
         

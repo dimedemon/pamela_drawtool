@@ -95,16 +95,37 @@ class MainWindow(QMainWindow):
         # 2. Мы добавляем WIDGET в макет
         left_layout.addWidget(self.plot_button_widget)
         # --- Правая Панель (Графики) ---
-        # (Пока заглушка)
         right_panel = QWidget()
         right_layout = QVBoxLayout()
         right_panel.setLayout(right_layout)
         
-        # --- ИСПРАВЛЕНИЕ: Заменяем QLabel на MplCanvas ---
-        # self.plot_placeholder = QLabel("...")
-        # right_layout.addWidget(self.plot_placeholder)
-        self.plot_canvas = MplCanvas(self) # Создаем наш холст
-        right_layout.addWidget(self.plot_canvas) # Добавляем его
+        # Панель управления видом (View Controls)
+        view_controls_layout = QHBoxLayout()
+        view_controls_layout.addWidget(QLabel("View Mode:"))
+        
+        btn_view_1 = QPushButton("Single (1x1)")
+        btn_view_4 = QPushButton("Grid (2x2)")
+        
+        # Сделаем кнопки переключаемыми (checkable) для наглядности
+        btn_view_1.setCheckable(True)
+        btn_view_4.setCheckable(True)
+        btn_view_1.setChecked(True) # По умолчанию 1
+        
+        # Группируем их (чтобы одна отжималась при нажатии другой)
+        from PyQt5.QtWidgets import QButtonGroup
+        self.view_group = QButtonGroup(self)
+        self.view_group.addButton(btn_view_1, 1)
+        self.view_group.addButton(btn_view_4, 4)
+        
+        view_controls_layout.addWidget(btn_view_1)
+        view_controls_layout.addWidget(btn_view_4)
+        view_controls_layout.addStretch()
+        
+        right_layout.addLayout(view_controls_layout)
+
+        # Холст Matplotlib
+        self.plot_canvas = MplCanvas(self) 
+        right_layout.addWidget(self.plot_canvas)
         
         # --- Собираем макет ---
         main_layout.addWidget(left_panel, 1) 
@@ -113,8 +134,10 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
-        # Мы подключаемся к кнопке .plot_button *внутри* виджета
+        
+        # --- Подключаем логику ---
         self.plot_button_widget.plot_button.clicked.connect(self.on_plot_button_clicked)
+        self.view_group.buttonClicked[int].connect(self.on_view_changed)
         
         print("Главное Окно успешно создано и готово к работе.")
         

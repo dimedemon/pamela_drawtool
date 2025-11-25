@@ -1,8 +1,5 @@
 """
-Модуль Обработки (Фаза 3 - ПОЛНЫЙ)
-Поддерживает:
-1. Energy/Rigidity Spectra (PlotKind 1, 2)
-2. Radial Distribution (PlotKind 4)
+Модуль Обработки (Фаза 3 - С использованием File Manager)
 """
 
 import os
@@ -10,6 +7,7 @@ import numpy as np
 from scipy.io import loadmat
 from . import config
 from . import state
+from . import file_manager # <--- НОВЫЙ ИМПОРТ
 
 def _load_mat_file(file_path):
     if not os.path.exists(file_path):
@@ -21,29 +19,6 @@ def _load_mat_file(file_path):
         print(f"Ошибка при чтении .mat файла ({file_path}): {e}")
         return None
 
-def _build_data_path(app_state: state.ApplicationState):
-    # Определяем 'er' (E или R биннинг)
-    if app_state.ror_e == 2:
-        er = f"R{app_state.eb}"
-    else:
-        er = f"E{app_state.eb}"
-
-    version_float = float(app_state.flux_version.replace('v', ''))
-
-    if version_float < 5.0:
-        binningpath = f"stdbinning{app_state.pitchb}{app_state.lb}e{app_state.eb}"
-    else:
-        binningpath = f"stdbinning_P{app_state.pitchb}L{app_state.lb}{er}"
-
-    if app_state.tbin == 'Separate Periods':
-        FCpath = 'RBfullfluxes'
-    else:
-        FCpath = f"RB{app_state.tbin}fluxes"
-
-    inpath = os.path.join(config.GEN_PATH, 'Loc', app_state.flux_version,
-                          app_state.selection, binningpath, FCpath)
-    return inpath
-
 def _find_bin_indices(edges, values):
     if not isinstance(values, (list, np.ndarray)):
         values = [values]
@@ -52,16 +27,16 @@ def _find_bin_indices(edges, values):
     indices[indices >= len(edges) - 1] = len(edges) - 2
     return indices
 
-# --- ФУНКЦИЯ 1: СПЕКТРЫ (SPECTRA) ---
 def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
     plot_data_list = []
-    base_path = _build_data_path(app_state)
+    
+    # --- ИСПОЛЬЗУЕМ НОВЫЙ МЕНЕДЖЕР ФАЙЛОВ ---
+    filenames, base_path = file_manager.get_input_filenames(app_state, 'flux')
     
     # Границы бинов
     L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
     pitch_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
     
-    # Ось X - это Энергия или Жесткость
     if app_state.ror_e == 1: # E
         E_edges = config.BIN_INFO['Ebin'][app_state.eb - 1]
         E_centers = (E_edges[:-1] + E_edges[1:]) / 2
@@ -75,21 +50,23 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
         x_data, dx_data = R_centers, dR
         x_label = "R, GV"
 
-    # Фиксированные параметры: L и Pitch
+    # Фиксированные параметры
     L_indices = _find_bin_indices(L_edges, app_state.l)
     pitch_indices = _find_bin_indices(pitch_edges, app_state.pitch)
     
-    periods = app_state.pam_pers 
-    if app_state.tbin == 'Separate Periods':
-        periods = [app_state.period]
-    elif not periods:
-        periods = [200]
-
-    for period in periods:
-        infile = os.path.join(base_path, f"RBflux_{period}.mat")
+    # --- ЦИКЛ ПО ФАЙЛАМ (полученным из file_manager) ---
+    for fname in filenames:
+        infile = os.path.join(base_path, fname)
         data = _load_mat_file(infile)
         if data is None: continue
             
+        # Извлекаем "день" из имени файла для лейбла (RBflux_200.mat -> 200)
+        # (Это упрощенно, можно сделать красивее через regex)
+        try:
+            day_str = fname.split('_')[1].split('.')[0]
+        except:
+            day_str = "Unknown"
+
         if app_state.fullday:
             try:
                 JJ = data['Jday']
@@ -99,7 +76,6 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
             
             for l_idx in np.unique(L_indices):
                 for p_idx in np.unique(pitch_indices):
-                    # J(L, E, P) -> берем срез [l, :, p] (все E)
                     y_data = JJ[l_idx, :, p_idx]
                     y_err = dJJ[l_idx, :, p_idx]
                     n_events = NN[l_idx, :, p_idx]
@@ -109,7 +85,7 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
                         
                     label = (f"L=[{L_edges[l_idx]:.2f}-{L_edges[l_idx+1]:.2f}], "
                              f"P=[{pitch_edges[p_idx]:.0f}-{pitch_edges[p_idx+1]:.0f}] deg, "
-                             f"Day={period}")
+                             f"Day={day_str}")
                     
                     plot_data_list.append({
                         "ax_index": ax_index,
@@ -126,19 +102,17 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
                     })
     return plot_data_list
 
-# --- ФУНКЦИЯ 2: РАДИАЛЬНОЕ РАСПРЕДЕЛЕНИЕ (RADIAL) ---
 def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
     plot_data_list = []
-    base_path = _build_data_path(app_state)
+    
+    # --- ИСПОЛЬЗУЕМ НОВЫЙ МЕНЕДЖЕР ФАЙЛОВ ---
+    filenames, base_path = file_manager.get_input_filenames(app_state, 'flux')
     
     L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
     pitch_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
-    
-    # Ось X - это L
     L_centers = (L_edges[:-1] + L_edges[1:]) / 2
     dL = (L_edges[1:] - L_edges[:-1]) / 2
     
-    # Фиксированные параметры: Pitch и E
     pitch_indices = _find_bin_indices(pitch_edges, app_state.pitch)
     
     if app_state.ror_e == 1: # E
@@ -150,16 +124,15 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
         
     E_indices = _find_bin_indices(E_edges, E_values)
 
-    periods = app_state.pam_pers 
-    if app_state.tbin == 'Separate Periods':
-        periods = [app_state.period]
-    elif not periods:
-        periods = [200]
-
-    for period in periods:
-        infile = os.path.join(base_path, f"RBflux_{period}.mat")
+    for fname in filenames:
+        infile = os.path.join(base_path, fname)
         data = _load_mat_file(infile)
         if data is None: continue
+        
+        try:
+            day_str = fname.split('_')[1].split('.')[0]
+        except:
+            day_str = "Unknown"
             
         if app_state.fullday:
             try:
@@ -170,7 +143,6 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
             
             for e_idx in np.unique(E_indices):
                 for p_idx in np.unique(pitch_indices):
-                    # J(L, E, P) -> берем срез [:, e, p] (все L)
                     y_data = JJ[:, e_idx, p_idx]
                     y_err = dJJ[:, e_idx, p_idx]
                     n_events = NN[:, e_idx, p_idx]
@@ -184,7 +156,7 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
                     
                     label = (f"{val_name}={val_center:.3f} {val_unit}, "
                              f"P=[{pitch_edges[p_idx]:.0f}-{pitch_edges[p_idx+1]:.0f}], "
-                             f"Day={period}")
+                             f"Day={day_str}")
                     
                     plot_data_list.append({
                         "ax_index": ax_index,
@@ -201,18 +173,19 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
                     })
     return plot_data_list
 
-# --- ГЛАВНЫЙ ДИСПЕТЧЕР ---
+# --- (Добавьте сюда _get_pitch_data, обновив его аналогично) ---
+
 def get_plot_data(app_state: state.ApplicationState, ax_index: int = 0):
     gen = app_state.gen 
     plot_kind = app_state.plot_kind 
 
-    if gen == 1: # PAMELA exp. data
-        if plot_kind == 1 or plot_kind == 2: # Spectra
+    if gen == 1: 
+        if plot_kind == 1 or plot_kind == 2: 
             return _get_spectra_data(app_state, ax_index)
-        
-        elif plot_kind == 3: # pitch-angular
-            pass # TODO
-        elif plot_kind == 4: # Radial distribution
+        elif plot_kind == 3: 
+            # return _get_pitch_data(app_state, ax_index)
+            pass
+        elif plot_kind == 4: 
             return _get_radial_data(app_state, ax_index)
             
     return []

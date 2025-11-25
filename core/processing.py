@@ -7,7 +7,7 @@ import numpy as np
 from scipy.io import loadmat
 from . import config
 from . import state
-from . import file_manager # <--- НОВЫЙ ИМПОРТ
+from . import file_manager # <--- ВАЖНЫЙ ИМПОРТ
 
 def _load_mat_file(file_path):
     if not os.path.exists(file_path):
@@ -31,8 +31,13 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
     plot_data_list = []
     
     # --- ИСПОЛЬЗУЕМ НОВЫЙ МЕНЕДЖЕР ФАЙЛОВ ---
-    filenames, base_path = file_manager.get_input_filenames(app_state, 'flux')
+    # file_manager возвращает полные пути
+    file_paths = file_manager.get_input_filenames(app_state, 'flux')
     
+    if not file_paths:
+        print(f"ВНИМАНИЕ: file_manager не вернул файлов. Проверьте параметры (Geo: {app_state.geo_selection}, Tbin: {app_state.tbin}).")
+        return []
+
     # Границы бинов
     L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
     pitch_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
@@ -50,29 +55,31 @@ def _get_spectra_data(app_state: state.ApplicationState, ax_index: int):
         x_data, dx_data = R_centers, dR
         x_label = "R, GV"
 
-    # Фиксированные параметры
     L_indices = _find_bin_indices(L_edges, app_state.l)
     pitch_indices = _find_bin_indices(pitch_edges, app_state.pitch)
-    
-    # --- ЦИКЛ ПО ФАЙЛАМ (полученным из file_manager) ---
-    for fname in filenames:
-        infile = os.path.join(base_path, fname)
+
+    # --- ЦИКЛ ПО ФАЙЛАМ ---
+    for infile in file_paths:
+        print(f"Попытка загрузки: {infile}") # Логируем путь для отладки
+        
         data = _load_mat_file(infile)
-        if data is None: continue
+        if data is None: 
+            continue
             
-        # Извлекаем "день" из имени файла для лейбла (RBflux_200.mat -> 200)
-        # (Это упрощенно, можно сделать красивее через regex)
         try:
-            day_str = fname.split('_')[1].split('.')[0]
+            basename = os.path.basename(infile)
+            day_str = basename.split('_')[1].split('.')[0] # RBflux_220.mat -> 220
         except:
-            day_str = "Unknown"
+            day_str = "?"
 
         if app_state.fullday:
             try:
                 JJ = data['Jday']
                 dJJ = data['dJday']
                 NN = data['numevday']
-            except KeyError: return []
+            except KeyError: 
+                print(f"ОШИБКА: В файле {infile} нет нужных переменных (Jday...)")
+                continue
             
             for l_idx in np.unique(L_indices):
                 for p_idx in np.unique(pitch_indices):
@@ -106,7 +113,7 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
     plot_data_list = []
     
     # --- ИСПОЛЬЗУЕМ НОВЫЙ МЕНЕДЖЕР ФАЙЛОВ ---
-    filenames, base_path = file_manager.get_input_filenames(app_state, 'flux')
+    file_paths = file_manager.get_input_filenames(app_state, 'flux')
     
     L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
     pitch_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
@@ -124,15 +131,14 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
         
     E_indices = _find_bin_indices(E_edges, E_values)
 
-    for fname in filenames:
-        infile = os.path.join(base_path, fname)
+    for infile in file_paths:
         data = _load_mat_file(infile)
         if data is None: continue
         
         try:
-            day_str = fname.split('_')[1].split('.')[0]
+            day_str = os.path.basename(infile).split('_')[1].split('.')[0]
         except:
-            day_str = "Unknown"
+            day_str = "?"
             
         if app_state.fullday:
             try:
@@ -173,8 +179,6 @@ def _get_radial_data(app_state: state.ApplicationState, ax_index: int):
                     })
     return plot_data_list
 
-# --- (Добавьте сюда _get_pitch_data, обновив его аналогично) ---
-
 def get_plot_data(app_state: state.ApplicationState, ax_index: int = 0):
     gen = app_state.gen 
     plot_kind = app_state.plot_kind 
@@ -183,8 +187,7 @@ def get_plot_data(app_state: state.ApplicationState, ax_index: int = 0):
         if plot_kind == 1 or plot_kind == 2: 
             return _get_spectra_data(app_state, ax_index)
         elif plot_kind == 3: 
-            # return _get_pitch_data(app_state, ax_index)
-            pass
+            pass # TODO: Pitch distribution
         elif plot_kind == 4: 
             return _get_radial_data(app_state, ax_index)
             

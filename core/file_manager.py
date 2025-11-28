@@ -1,9 +1,9 @@
 """
-Менеджер Файлов (core/file_manager.py)
+Менеджер Файлов (core/file_manager.py) - SMART EDITION
 
-Порт getInputFilenames.m.
-Отвечает за генерацию путей к файлам и списков имен файлов
-на основе текущего состояния приложения (ApplicationState).
+Поддерживает два типа структур:
+1. MODERN (Рекомендуемая): Data/Geo/Selection/Binning/RBflux_Day.mat
+2. LEGACY (Matlab): Data/Geo/day/day_Day/Selection/Loc/Binning/RBdayfluxes/RBflux_Day.mat
 """
 
 import os
@@ -12,101 +12,80 @@ from . import state
 
 def get_input_filenames(app_state: state.ApplicationState, file_type: str = 'flux'):
     """
-    Генерирует список файлов и базовый путь к ним.
-    
-    Args:
-        app_state: Текущее состояние приложения.
-        file_type: Тип файлов ('flux', 'aux', 'sat', 'pre').
-        
-    Returns:
-        tuple: (list_of_filenames, full_folder_path)
+    Возвращает список полных путей к файлам.
+    Проверяет Modern путь, затем Legacy путь.
     """
     
-    # 1. Определяем часть пути для биннинга (binningpath)
-    # Логика RorE (Energy vs Rigidity)
-    if app_state.ror_e == 2: # 2 = R
-        er_str = f"R{app_state.eb}"
-    else: # 1 = E
-        er_str = f"E{app_state.eb}"
-
-    # Логика версий (v09 -> 9.0)
-    try:
-        version_num = float(app_state.flux_version.replace('v', ''))
-    except ValueError:
-        version_num = 9.0 # Fallback
-
-    if version_num < 5.0:
-        # Старый формат: stdbinning33e3
-        binning_path = f"stdbinning{app_state.pitchb}{app_state.lb}e{app_state.eb}"
-    else:
-        # Новый формат: stdbinning_P3L3E3
-        binning_path = f"stdbinning_P{app_state.pitchb}L{app_state.lb}{er_str}"
-
-    # 2. Определяем папку категории потоков (FCpath)
-    if app_state.tbin == 'Separate Periods':
-        fc_path = 'RBfullfluxes'
-    else:
-        fc_path = f"RB{app_state.tbin}fluxes"
-
-    # 3. Собираем полный путь к папке
-    # Для 'pre' и 'aux' пути могут отличаться, но пока следуем логике flux
-    base_path = os.path.join(
-        config.GEN_PATH, 
-        'Loc', 
-        app_state.flux_version,
-        app_state.selection, 
-        binning_path, 
-        fc_path
-    )
-
-    # 4. Генерируем список имен файлов (filenames)
-    filenames = []
+    full_paths = []
     
-    # Используем список дней/периодов из состояния
-    # Если 'Separate Periods', используем app_state.period
-    # Иначе используем app_state.pam_pers
-    
+    # 1. Определяем список периодов (дней)
     if app_state.tbin == 'Separate Periods':
         periods = [app_state.period]
     else:
         periods = app_state.pam_pers
-        # Защита от пустого списка (как было в processing.py)
-        if not periods:
-            periods = [200] # Тестовое значение по умолчанию
+        if not periods: return []
 
-    # --- Генерация имен в зависимости от типа ---
+    # 2. Формируем строку биннинга (P3L3E3)
+    if app_state.ror_e == 2:
+        er_str = f"R{app_state.eb}"
+    else:
+        er_str = f"E{app_state.eb}"
+        
+    # Очищаем название биннинга от лишнего (на всякий случай)
+    # Если stdbinning уже содержит имя, используем его, иначе собираем
+    if app_state.stdbinning:
+        binning_name = app_state.stdbinning
+    else:
+        binning_name = f"stdbinning_P{app_state.pitchb}L{app_state.lb}{er_str}"
     
-    if file_type == 'flux':
-        # Пример: RBflux_200.mat
-        for per in periods:
-            filenames.append(f"RBflux_{per}.mat")
-            
-    elif file_type == 'sat':
-        # Пример: SatData_200.mat (как в MATLAB case 'sat')
-        # Путь для sat может отличаться, в MATLAB он строится иначе:
-        # path = [GENPATH 'SatData\'];
-        # Но здесь мы пока оставим общую логику, если нужно - поправим
-        base_path = os.path.join(config.GEN_PATH, 'SatData')
-        for per in periods:
-            filenames.append(f"SatData_{per}.mat")
-            
-    elif file_type == 'aux':
-        # Пример: dirflux_200_pass_1_aux.mat
-        # Требует логики пролетов (passages)
-        # Пока заглушка для дней
-        base_path = os.path.join(
-            config.GEN_PATH, 
-            'Loc', 
-            app_state.flux_version,
-            app_state.selection, 
-            'preFluxdata'
-        )
-        for per in periods:
-            # В MATLAB здесь сложная логика с day_.../dirflux_...
-            # Мы вернемся к этому, когда будем делать Aux графики
-            day_path = os.path.join(base_path, f"day_{per}")
-            filenames.append(f"dirflux_{per}_gen.mat") # Упрощено
-            
-    # TODO: Добавить case 'pre' и другие, если понадобятся
+    # Убираем префикс 'stdbinning_', если он есть, для чистоты новой структуры
+    clean_binning_name = binning_name.replace('stdbinning_', '')
+    # Но для Legacy путей нам нужен префикс
+    legacy_binning_name = binning_name if binning_name.startswith('stdbinning_') else f"stdbinning_{binning_name}"
 
-    return filenames, base_path
+    # 3. Цикл по дням
+    for per in periods:
+        filename_flux = f"RBflux_{per}.mat"
+        
+        # --- ВАРИАНТ А: MODERN (Чистый) ---
+        # Data / RB3 / ItalianH / P3L3E3 / RBflux_200.mat
+        path_modern = os.path.join(
+            config.GEN_PATH,         # data/dirflux_newStructure
+            app_state.geo_selection, # RB3
+            app_state.selection,     # ItalianH
+            clean_binning_name,      # P3L3E3
+            filename_flux
+        )
+        
+        # --- ВАРИАНТ Б: LEGACY (Matlab Style) ---
+        # Data / RB3 / day / day_200 / ItalianH / Loc / stdbinning_P3L3E3 / RBdayfluxes / RBflux_200.mat
+        if app_state.tbin == 'Separate Periods':
+            per_folder = str(per)
+        else:
+            per_folder = f"{app_state.tbin}_{per}" # day_200
+
+        path_legacy = os.path.join(
+            config.GEN_PATH,
+            app_state.geo_selection, # RB3
+            app_state.tbin,          # day
+            per_folder,              # day_200
+            app_state.selection,     # ItalianH
+            'Loc',
+            legacy_binning_name,     # stdbinning_P3L3E3
+            'RBdayfluxes' if app_state.tbin == 'day' else 'RBfullfluxes',
+            filename_flux
+        )
+
+        # --- ЛОГИКА ВЫБОРА ---
+        if os.path.exists(path_modern):
+            full_paths.append(path_modern)
+            # print(f"Найден (Modern): {path_modern}") # Debug
+        elif os.path.exists(path_legacy):
+            full_paths.append(path_legacy)
+            # print(f"Найден (Legacy): {path_legacy}") # Debug
+        else:
+            # Если файл не найден нигде, добавляем Modern путь (чтобы ошибка была понятной)
+            # или пропускаем. Лучше добавить, чтобы processing.py выдал ошибку.
+            full_paths.append(path_modern)
+
+    return full_paths

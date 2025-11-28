@@ -371,6 +371,24 @@ class ApplicationState:
         if self._fullday != value:
             self._fullday = value
             self.fullday_changed.send(self, value=value)
+    @property
+    def dt(self): return self._dt
+    @dt.setter
+    def dt(self, value):
+        if self._dt != value: self._dt = value; self.dt_changed.send(self, value=value)
+
+    @property
+    def t_min(self): return self._t_min
+    @t_min.setter
+    def t_min(self, value):
+        if self._t_min != value: self._t_min = value; self.t_min_changed.send(self, value=value)
+
+    @property
+    def t_max(self): return self._t_max
+    @t_max.setter
+    def t_max(self, value):
+        if self._t_max != value: self._t_max = value; self.t_max_changed.send(self, value=value)
+    # -----------------------------------------
     def update_multiple(self, **kwargs):
         """
         Обновляет несколько полей сразу, отправляя сигнал 

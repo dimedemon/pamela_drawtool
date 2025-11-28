@@ -1,15 +1,12 @@
 """
-Порт pan04_GeomagneticParams.m (ИСПРАВЛЕННЫЙ)
-и pan04_set01_L.m, pan04_set02_pitch.m,
-pan04_set03_E.m, pan04_set04_R.m
-
-Исправлена логика конвертации E/R. 'app_state' всегда хранит GeV/GV.
+Порт pan04_GeomagneticParams.m (ПОЛНЫЙ + SMART LOGIC)
+Реализует логику setGeomagParamEn.m для всех PlotKinds.
 """
 import numpy as np
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QLabel, QLineEdit, 
                              QPushButton, QGroupBox, QVBoxLayout, QComboBox)
 from PyQt5.QtCore import QSignalBlocker, Qt
-from core import kinematics # Импорт кинематики
+from core import kinematics
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.dialogs.l_bin_dialog import LBinDialog
@@ -17,299 +14,246 @@ from desktop_app.dialogs.pitch_bin_dialog import PitchBinDialog
 from desktop_app.dialogs.e_bin_dialog import EBinDialog
 
 def _list_to_str(val_list, fmt=".3f"):
-    """Вспомогательная функция: конвертирует [1.1, 1.2] в "1.100, 1.200" """
-    if not val_list:
-        return ""
-    if val_list == [-1]:
-        return "All"
+    if not val_list: return ""
+    if val_list == [-1]: return "All"
     return ", ".join(f"{val:{fmt}}" for val in val_list)
 
 def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnector, parent_window):
     """
     Создает QGroupBox "Input parameters: Geomagnetic".
     """
-    # 1. Создаем главный контейнер (pan04)
     widget = QGroupBox("Input parameters: Geomagnetic")
     main_layout = QVBoxLayout()
     widget.setLayout(main_layout)
     main_layout.setContentsMargins(5, 10, 5, 5)
 
-    # --- Верхний макет (заголовки) ---
+    # --- Заголовки ---
     header_layout = QHBoxLayout()
-    header_layout.addWidget(QLabel(""), 1) # Пустое место
-    header_layout.addWidget(QLabel("min value"), 4) # min
-    header_layout.addWidget(QLabel("units / ..."), 2) # units/btn
-    header_layout.addWidget(QLabel("max value"), 2) # max
-    header_layout.addWidget(QLabel("Δ"), 1) # delta
+    header_layout.addWidget(QLabel(""), 1)
+    header_layout.addWidget(QLabel("min value"), 4)
+    header_layout.addWidget(QLabel("units / ..."), 2)
+    header_layout.addWidget(QLabel("max value"), 2)
+    header_layout.addWidget(QLabel("Δ"), 1)
     main_layout.addLayout(header_layout)
 
-    # --- Макет 1: L-Shell (pan04_set01_L) ---
+    # --- Макет 1: L-Shell ---
     l_layout = QHBoxLayout()
     edit_l_min = QLineEdit()
     button_show_l = QPushButton("...")
     button_show_l.setFixedWidth(30)
     edit_l_max = QLineEdit()
     edit_delta_l = QLineEdit()
-    
-    l_layout.addWidget(QLabel("L:"), 1)
-    l_layout.addWidget(edit_l_min, 4)
-    l_layout.addWidget(button_show_l, 2)
-    l_layout.addWidget(edit_l_max, 2)
-    l_layout.addWidget(edit_delta_l, 1)
+    l_layout.addWidget(QLabel("L:"), 1); l_layout.addWidget(edit_l_min, 4); l_layout.addWidget(button_show_l, 2)
+    l_layout.addWidget(edit_l_max, 2); l_layout.addWidget(edit_delta_l, 1)
     main_layout.addLayout(l_layout)
 
-    # --- Макет 2: Pitch (pan04_set02_pitch) ---
+    # --- Макет 2: Pitch ---
     pitch_layout = QHBoxLayout()
     edit_pitch_min = QLineEdit()
     button_show_pitch = QPushButton("...")
     button_show_pitch.setFixedWidth(30)
     edit_pitch_max = QLineEdit()
     edit_delta_alpha = QLineEdit()
-
-    pitch_layout.addWidget(QLabel("α:"), 1)
-    pitch_layout.addWidget(edit_pitch_min, 4)
-    pitch_layout.addWidget(button_show_pitch, 2)
-    pitch_layout.addWidget(edit_pitch_max, 2)
-    pitch_layout.addWidget(edit_delta_alpha, 1)
+    pitch_layout.addWidget(QLabel("α:"), 1); pitch_layout.addWidget(edit_pitch_min, 4); pitch_layout.addWidget(button_show_pitch, 2)
+    pitch_layout.addWidget(edit_pitch_max, 2); pitch_layout.addWidget(edit_delta_alpha, 1)
     main_layout.addLayout(pitch_layout)
     
-    # --- Макет 3: Energy (pan04_set03_E) ---
+    # --- Макет 3: Energy ---
     e_layout = QHBoxLayout()
     edit_e_min = QLineEdit()
-    combo_e_units = QComboBox()
-    combo_e_units.addItems(['MeV', 'GeV'])
-    combo_e_units.setCurrentIndex(1) # GeV по умолчанию
-    button_show_e = QPushButton("...")
-    button_show_e.setFixedWidth(30)
+    combo_e_units = QComboBox(); combo_e_units.addItems(['MeV', 'GeV']); combo_e_units.setCurrentIndex(1)
+    button_show_e = QPushButton("..."); button_show_e.setFixedWidth(30)
     edit_e_max = QLineEdit()
     edit_delta_e = QLineEdit()
-    
-    e_units_layout = QHBoxLayout()
-    e_units_layout.setContentsMargins(0,0,0,0)
-    e_units_layout.addWidget(combo_e_units)
-    e_units_layout.addWidget(button_show_e)
-    
-    e_layout.addWidget(QLabel("E:"), 1)
-    e_layout.addWidget(edit_e_min, 4)
-    e_layout.addLayout(e_units_layout, 2)
-    e_layout.addWidget(edit_e_max, 2)
-    e_layout.addWidget(edit_delta_e, 1)
+    e_units_layout = QHBoxLayout(); e_units_layout.setContentsMargins(0,0,0,0)
+    e_units_layout.addWidget(combo_e_units); e_units_layout.addWidget(button_show_e)
+    e_layout.addWidget(QLabel("E:"), 1); e_layout.addWidget(edit_e_min, 4); e_layout.addLayout(e_units_layout, 2)
+    e_layout.addWidget(edit_e_max, 2); e_layout.addWidget(edit_delta_e, 1)
     main_layout.addLayout(e_layout)
 
-    # --- Макет 4: Rigidity (pan04_set04_R) ---
+    # --- Макет 4: Rigidity ---
     r_layout = QHBoxLayout()
     edit_r_min = QLineEdit()
-    combo_r_units = QComboBox()
-    combo_r_units.addItems(['MV', 'GV'])
-    combo_r_units.setCurrentIndex(1) # GV по умолчанию
+    combo_r_units = QComboBox(); combo_r_units.addItems(['MV', 'GV']); combo_r_units.setCurrentIndex(1)
     edit_r_max = QLineEdit()
-    
-    r_layout.addWidget(QLabel("R:"), 1)
-    r_layout.addWidget(edit_r_min, 4)
-    r_layout.addWidget(combo_r_units, 2)
-    r_layout.addWidget(edit_r_max, 2)
-    r_layout.addWidget(QLabel(""), 1)
+    r_layout.addWidget(QLabel("R:"), 1); r_layout.addWidget(edit_r_min, 4); r_layout.addWidget(combo_r_units, 2)
+    r_layout.addWidget(edit_r_max, 2); r_layout.addWidget(QLabel(""), 1)
     main_layout.addLayout(r_layout)
 
-    # -----------------------------------------------------------------
-    # 3. Связывание (Binding)
-    # -----------------------------------------------------------------
+    # --- Макет 5: Time (t:, t_max, dt) ---
+    t_layout = QHBoxLayout()
+    edit_t_min = QLineEdit("hh:mm:ss")
+    edit_t_max = QLineEdit("hh:mm:ss") 
+    edit_dt = QLineEdit()
+    t_layout.addWidget(QLabel("t:"), 1)
+    t_layout.addWidget(edit_t_min, 4)
+    t_layout.addWidget(QLabel(""), 2) # Заглушка
+    t_layout.addWidget(edit_t_max, 2)
+    t_layout.addWidget(edit_dt, 1)
+    main_layout.addLayout(t_layout)
 
-    # --- L-Shell (без изменений) ---
+    # -----------------------------------------------------------------
+    # Логика Блокировки (setGeomagParamEn.m)
+    # -----------------------------------------------------------------
+    def update_ui_state(plot_kind_val):
+        """
+        Включает/выключает поля в зависимости от типа графика.
+        Логика полностью портирована из setGeomagParamEn.m
+        """
+        
+        # Инициализируем все как выключенное
+        l_en = False; pitch_en = False; er_en = False; t_en = False
+        
+        if plot_kind_val in [1, 2]: # Energy/Rigidity spectra
+            # Ось X: E/R. Фиксируем: L, Pitch
+            l_en = True; pitch_en = True; er_en = False; t_en = False
+            
+        elif plot_kind_val == 3: # Pitch-angular distribution
+            # Ось X: Pitch. Фиксируем: L, E/R
+            l_en = True; pitch_en = False; er_en = True; t_en = False
+            
+        elif plot_kind_val == 4: # Radial distribution
+            # Ось X: L. Фиксируем: Pitch, E/R
+            l_en = False; pitch_en = True; er_en = True; t_en = False
+            
+        elif plot_kind_val in [5, 7]: # Temporal variations / Fluxes Histogram
+            # Ось X: Time/Value. Фиксируем: L, Pitch, E/R
+            l_en = True; pitch_en = True; er_en = True; t_en = False
+            
+        elif plot_kind_val == 6: # Variations along orbit
+            # Фиксируем всё, плюс время
+            l_en = True; pitch_en = True; er_en = True; t_en = True
+            
+        elif plot_kind_val == 8: # L-pitch map
+            # Оси: L, Pitch. Фиксируем: E/R
+            l_en = False; pitch_en = False; er_en = True; t_en = False
+            
+        elif plot_kind_val == 9: # E-pitch map
+            # Оси: E, Pitch. Фиксируем: L
+            l_en = True; pitch_en = False; er_en = False; t_en = False
+            
+        elif plot_kind_val == 10: # E-L map
+            # Оси: E, L. Фиксируем: Pitch
+            l_en = False; pitch_en = True; er_en = False; t_en = False
+
+        elif plot_kind_val == 11: # Auxiliary parameters
+            # Нужен только dt
+            l_en = False; pitch_en = False; er_en = False; t_en = True
+
+        # Применяем состояние к группам виджетов
+        
+        # L widgets
+        edit_l_min.setEnabled(l_en)
+        button_show_l.setEnabled(l_en)
+        edit_l_max.setEnabled(l_en)
+        edit_delta_l.setEnabled(l_en)
+        
+        # Pitch widgets
+        edit_pitch_min.setEnabled(pitch_en)
+        button_show_pitch.setEnabled(pitch_en)
+        edit_pitch_max.setEnabled(pitch_en)
+        edit_delta_alpha.setEnabled(pitch_en)
+        
+        # E/R widgets (они всегда включаются/выключаются вместе)
+        edit_e_min.setEnabled(er_en)
+        combo_e_units.setEnabled(er_en)
+        button_show_e.setEnabled(er_en)
+        edit_e_max.setEnabled(er_en)
+        edit_delta_e.setEnabled(er_en)
+        
+        edit_r_min.setEnabled(er_en)
+        combo_r_units.setEnabled(er_en)
+        edit_r_max.setEnabled(er_en)
+        
+        # Time widgets
+        edit_t_min.setEnabled(t_en)
+        edit_t_max.setEnabled(t_en)
+        edit_dt.setEnabled(t_en)
+
+    # Подписываемся на изменение типа графика
+    connector.plot_kind_changed.connect(update_ui_state)
+
+    # -----------------------------------------------------------------
+    # Связывание (Binding)
+    # -----------------------------------------------------------------
+    
+    # --- L ---
     def on_l_min_changed():
         txt = edit_l_min.text()
         if txt.lower() == 'all': app_state.l = [-1]
         else:
-            try:
-                app_state.l = [float(val.strip()) for val in txt.split(',') if val.strip()]
+            try: app_state.l = [float(v) for v in txt.split(',') if v.strip()]
             except ValueError: on_core_l_changed(app_state.l)
-    def on_l_max_changed():
-        try: app_state.l_max = float(edit_l_max.text())
-        except ValueError: on_core_l_max_changed(app_state.l_max)
     edit_l_min.editingFinished.connect(on_l_min_changed)
-    edit_l_max.editingFinished.connect(on_l_max_changed)
-    def on_core_l_changed(new_l_list):
-        with QSignalBlocker(edit_l_min): edit_l_min.setText(_list_to_str(new_l_list, ".3f"))
-    def on_core_l_max_changed(new_l_max):
-        with QSignalBlocker(edit_l_max): edit_l_max.setText(f"{new_l_max:.3f}")
+    def on_core_l_changed(v): 
+        with QSignalBlocker(edit_l_min): edit_l_min.setText(_list_to_str(v))
     connector.l_changed.connect(on_core_l_changed)
-    connector.l_max_changed.connect(on_core_l_max_changed)
-    def on_show_l_bin():
-        dialog = LBinDialog(app_state, parent_window); dialog.exec_()
-    button_show_l.clicked.connect(on_show_l_bin)
-
-    # --- Pitch (без изменений) ---
+    button_show_l.clicked.connect(lambda: LBinDialog(app_state, parent_window).exec_())
+    
+    # --- Pitch ---
     def on_pitch_min_changed():
         txt = edit_pitch_min.text()
         if txt.lower() == 'all': app_state.pitch = [-1]
         else:
             try: app_state.pitch = [float(val.strip()) for val in txt.split(',') if val.strip()]
             except ValueError: on_core_pitch_changed(app_state.pitch)
-    def on_pitch_max_changed():
-        txt = edit_pitch_max.text()
-        try: app_state.pitch_max = [float(val.strip()) for val in txt.split(',') if val.strip()]
-        except ValueError: on_core_pitch_max_changed(app_state.pitch_max)
-    def on_d_alpha_changed():
-        try: app_state.d_alpha = float(edit_delta_alpha.text())
-        except ValueError: on_core_d_alpha_changed(app_state.d_alpha)
     edit_pitch_min.editingFinished.connect(on_pitch_min_changed)
-    edit_pitch_max.editingFinished.connect(on_pitch_max_changed)
-    edit_delta_alpha.editingFinished.connect(on_d_alpha_changed)
-    def on_core_pitch_changed(new_pitch_list):
-        with QSignalBlocker(edit_pitch_min): edit_pitch_min.setText(_list_to_str(new_pitch_list, ".1f"))
-    def on_core_pitch_max_changed(new_pitch_max_list):
-        with QSignalBlocker(edit_pitch_max): edit_pitch_max.setText(_list_to_str(new_pitch_max_list, ".1f"))
-    def on_core_d_alpha_changed(new_d_alpha):
-        with QSignalBlocker(edit_delta_alpha): edit_delta_alpha.setText(f"{new_d_alpha:.1f}")
+    def on_core_pitch_changed(v): 
+        with QSignalBlocker(edit_pitch_min): edit_pitch_min.setText(_list_to_str(v, ".1f"))
     connector.pitch_changed.connect(on_core_pitch_changed)
-    connector.pitch_max_changed.connect(on_core_pitch_max_changed)
-    connector.d_alpha_changed.connect(on_core_d_alpha_changed)
-    def on_show_pitch_bin():
-        dialog = PitchBinDialog(app_state, parent_window); dialog.exec_()
-    button_show_pitch.clicked.connect(on_show_pitch_bin)
-    
-    # --- E / R (ИСПРАВЛЕННАЯ ЛОГИКА) ---
-    
-    # --- Связь: E -> R (Логика ConvertT2R) ---
+    button_show_pitch.clicked.connect(lambda: PitchBinDialog(app_state, parent_window).exec_())
+
+    # --- E/R ---
     def on_e_changed_by_user():
         txt = edit_e_min.text()
-        if txt.lower() == 'all':
+        if txt.lower() == 'all': 
             app_state.update_multiple(e=[-1], rig=[-1], is_e=True)
             return
         try:
-            e_values_display = [float(val.strip()) for val in txt.split(',') if val.strip()]
-            
-            # 1. Конвертируем E (display) -> E (GeV)
-            e_values_gev = np.array(e_values_display)
-            if combo_e_units.currentIndex() == 0: # Если 'MeV'
-                e_values_gev = e_values_gev / 1000.0
-            
-            # 2. Конвертируем E (GeV) -> R (GV)
-            M, A, Z = 0.938, 1.0, 1.0
-            rig_values_gv = kinematics.convert_T_to_R(e_values_gev, M, A, Z)
-            
-            # 3. Сохраняем *только* GeV и GV в app_state
-            app_state.update_multiple(
-                e=list(e_values_gev), 
-                rig=list(rig_values_gv), 
-                is_e=True
-            )
-            
-        except ValueError: 
-            on_core_e_changed(app_state.e) # Сброс
-
-    # --- Связь: R -> E (Логика ConvertR2T) ---
-    def on_rig_changed_by_user():
-        txt = edit_r_min.text()
-        if txt.lower() == 'all':
-            app_state.update_multiple(e=[-1], rig=[-1], is_e=False)
-            return
-        try:
-            rig_values_display = [float(val.strip()) for val in txt.split(',') if val.strip()]
-            
-            # 1. Конвертируем R (display) -> R (GV)
-            rig_values_gv = np.array(rig_values_display)
-            if combo_r_units.currentIndex() == 0: # Если 'MV'
-                rig_values_gv = rig_values_gv / 1000.0
-                
-            # 2. Конвертируем R (GV) -> E (GeV)
-            M, A, Z = 0.938, 1.0, 1.0
-            e_values_gev = kinematics.convert_R_to_T(rig_values_gv, M, A, Z)
-            
-            # 3. Сохраняем *только* GeV и GV в app_state
-            app_state.update_multiple(
-                e=list(e_values_gev), 
-                rig=list(rig_values_gv), 
-                is_e=False
-            )
-            
-        except ValueError: 
-            on_core_rig_changed(app_state.rig) # Сброс
-
-    # --- Связь: Ядро -> GUI (E) ---
-    def on_core_e_changed(new_e_list_gev):
-        with QSignalBlocker(edit_e_min): 
-            if new_e_list_gev == [-1]:
-                edit_e_min.setText("All")
-                return
-            
-            # Конвертируем GeV -> (MeV или GeV) для отображения
-            e_values_gev = np.array(new_e_list_gev)
-            if combo_e_units.currentIndex() == 0: # 'MeV'
-                display_values = e_values_gev * 1000.0
-            else: # 'GeV'
-                display_values = e_values_gev
-                
-            edit_e_min.setText(_list_to_str(display_values, ".3f"))
-
-    # --- Связь: Ядро -> GUI (R) ---
-    def on_core_rig_changed(new_rig_list_gv):
-        with QSignalBlocker(edit_r_min): 
-            if new_rig_list_gv == [-1]:
-                edit_r_min.setText("All")
-                return
-
-            # Конвертируем GV -> (MV или GV) для отображения
-            rig_values_gv = np.array(new_rig_list_gv)
-            if combo_r_units.currentIndex() == 0: # 'MV'
-                display_values = rig_values_gv * 1000.0
-            else: # 'GV'
-                display_values = rig_values_gv
-            
-            edit_r_min.setText(_list_to_str(display_values, ".3f"))
-            
-    # --- Связь: Смена E/R ю-нитов ---
-    def on_e_units_changed():
-        # Просто заново отображаем значение из app_state в новых юнитах
-        on_core_e_changed(app_state.e)
-        
-    def on_r_units_changed():
-        # Просто заново отображаем значение из app_state в новых юнитах
-        on_core_rig_changed(app_state.rig)
-
-    # --- Подключаем всё ---
+            vals = [float(v) for v in txt.split(',') if v.strip()]
+            e_gev = np.array(vals) / (1000.0 if combo_e_units.currentIndex()==0 else 1.0)
+            r_gv = kinematics.convert_T_to_R(e_gev, 0.938, 1.0, 1.0)
+            app_state.update_multiple(e=list(e_gev), rig=list(r_gv), is_e=True)
+        except ValueError: on_core_e_changed(app_state.e)
     edit_e_min.editingFinished.connect(on_e_changed_by_user)
-    edit_r_min.editingFinished.connect(on_rig_changed_by_user)
-    combo_e_units.currentIndexChanged.connect(on_e_units_changed)
-    combo_r_units.currentIndexChanged.connect(on_r_units_changed)
     
+    def on_core_e_changed(new_e):
+        with QSignalBlocker(edit_e_min):
+            if new_e == [-1]: edit_e_min.setText("All")
+            else: 
+                factor = 1000.0 if combo_e_units.currentIndex()==0 else 1.0
+                edit_e_min.setText(_list_to_str(np.array(new_e)*factor, ".3f"))
     connector.e_changed.connect(on_core_e_changed)
+    combo_e_units.currentIndexChanged.connect(lambda: on_core_e_changed(app_state.e))
+    button_show_e.clicked.connect(lambda: EBinDialog(app_state, parent_window).exec_())
+
+    def on_core_rig_changed(new_r):
+        with QSignalBlocker(edit_r_min):
+            if new_r == [-1]: edit_r_min.setText("All")
+            else:
+                factor = 1000.0 if combo_r_units.currentIndex()==0 else 1.0
+                edit_r_min.setText(_list_to_str(np.array(new_r)*factor, ".3f"))
     connector.rig_changed.connect(on_core_rig_changed)
+    combo_r_units.currentIndexChanged.connect(lambda: on_core_rig_changed(app_state.rig))
+
+    # --- Time (dt) ---
+    def on_dt_changed():
+        try: app_state.dt = float(edit_dt.text())
+        except ValueError: on_core_dt_changed(app_state.dt)
+    edit_dt.editingFinished.connect(on_dt_changed)
     
-    # E_max / Rig_max (пока без пересчета, только отображение)
-    def on_core_e_max_changed(new_e_max_list_gev):
-        with QSignalBlocker(edit_e_max): 
-            e_values_gev = np.array(new_e_max_list_gev)
-            if combo_e_units.currentIndex() == 0: display_values = e_values_gev * 1000.0
-            else: display_values = e_values_gev
-            edit_e_max.setText(_list_to_str(display_values, ".3f"))
-            
-    def on_core_rig_max_changed(new_rig_max_list_gv):
-        with QSignalBlocker(edit_r_max):
-            rig_values_gv = np.array(new_rig_max_list_gv)
-            if combo_r_units.currentIndex() == 0: display_values = rig_values_gv * 1000.0
-            else: display_values = rig_values_gv
-            edit_r_max.setText(_list_to_str(display_values, ".3f"))
+    def on_core_dt_changed(val):
+        with QSignalBlocker(edit_dt): edit_dt.setText(str(val))
+    connector.dt_changed.connect(on_core_dt_changed)
 
-    connector.e_max_changed.connect(on_core_e_max_changed)
-    connector.rig_max_changed.connect(on_core_rig_max_changed)
-
-    # --- Кнопка "..." (ShowEbin) ---
-    def on_show_e_bin():
-        dialog = EBinDialog(app_state, parent_window)
-        dialog.exec_()
-            
-    button_show_e.clicked.connect(on_show_e_bin)
-
-    # 4. Инициализация
+    # Инициализация UI
+    update_ui_state(app_state.plot_kind)
+    
+    # Инициализация значений
     on_core_l_changed(app_state.l)
-    on_core_l_max_changed(app_state.l_max)
     on_core_pitch_changed(app_state.pitch)
-    on_core_pitch_max_changed(app_state.pitch_max)
-    on_core_d_alpha_changed(app_state.d_alpha)
     on_core_e_changed(app_state.e)
-    on_core_e_max_changed(app_state.e_max)
     on_core_rig_changed(app_state.rig)
-    on_core_rig_max_changed(app_state.rig_max)
+    on_core_dt_changed(app_state.dt)
     
     return widget

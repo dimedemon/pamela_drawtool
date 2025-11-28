@@ -11,6 +11,7 @@ from core import config
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.dialogs.long_periods import LongPeriodsDialog
+from desktop_app.dialogs.days_dialog import DaysDialog # <--- НОВЫЙ ИМПОРТ
 
 # Константа PAMSTART из config
 PAM_START_JD = config.PAMSTART
@@ -91,9 +92,12 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     edit_day_end = QLineEdit()
     btn_clr_days = QPushButton("clr")
     btn_clr_days.setFixedWidth(30)
-    
+    btn_show_days = QPushButton("?") # <--- ДОБАВИТЬ
+    btn_show_days.setFixedWidth(30)  # <--- ДОБАВИТЬ
+  
     row3.addWidget(QLabel("Pam Day Start:"))
     row3.addWidget(edit_day_start)
+    row3.addWidget(btn_show_days)
     row3.addWidget(QLabel("End:"))
     row3.addWidget(edit_day_end)
     row3.addWidget(btn_clr_days)
@@ -199,7 +203,13 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     def on_clr_click():
         app_state.pam_pers = []
     btn_clr_days.clicked.connect(on_clr_click)
-
+  
+    def on_show_days_click():
+    # Открываем календарь
+    dialog = DaysDialog(app_state, parent_window)
+    dialog.exec_()
+    btn_show_days.clicked.connect(on_show_days_click)
+  
     # 3. Инициализация
     on_core_tbin_changed(app_state.tbin)
     on_core_period_changed(app_state.period)

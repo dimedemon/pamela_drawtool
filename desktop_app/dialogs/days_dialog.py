@@ -1,24 +1,25 @@
 """
 Порт ShowDays из pan03_set02_Pamdays.m
-SMART EDITION:
-- Полная расшифровка цветов (Legend).
-- Ленивая загрузка MagParam (не вешает старт).
-- Оптимизация циклов даты.
+STABLE EDITION: Классический функционал (как в MATLAB).
+- Быстрая загрузка (без MagParam).
+- Раскраска по качеству данных.
+- Инфо о Бартельсе/Кэррингтоне при клике.
 """
 import os
 import numpy as np
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
                              QPushButton, QHBoxLayout, QHeaderView, QLabel, QWidget,
-                             QComboBox, QFrame, QAbstractItemView, QMessageBox, QApplication)
+                             QFrame, QAbstractItemView, QMessageBox)
 from PyQt5.QtGui import QColor, QBrush
 from PyQt5.QtCore import Qt
 from core import config
 from core.state import ApplicationState
 
-# Цвета качества (из MATLAB)
+# Цвета из MATLAB (DayQualColours)
+# 0: OFF, 1: Good, 2: Short, 4: Tracker OFF, 6: Orient missed, 7: Calo OFF
 DAY_QUAL_COLORS = [
-    '#3d3339', # 0: OFF (Black/Grey)
+    '#3d3339', # 0: OFF (Black)
     '#80df20', # 1: Good (Green)
     '#e1d81a', # 2: Short (Yellow)
     '#ffffff', # 3: Empty
@@ -28,13 +29,6 @@ DAY_QUAL_COLORS = [
     '#63eae8'  # 7: Calo OFF (Cyan)
 ]
 
-def get_kp_color(kp):
-    if np.isnan(kp): return QColor('white')
-    if kp < 3: return QColor('#80df20') 
-    if kp < 5: return QColor('#e1d81a') 
-    if kp < 7: return QColor('#ecb245') 
-    return QColor('#ec614b')            
-
 class DaysDialog(QDialog):
     
     def __init__(self, app_state: ApplicationState, parent=None):
@@ -42,42 +36,38 @@ class DaysDialog(QDialog):
         self.app_state = app_state
         self.selected_day = None
         
+        # Данные
         self.day_quality_map = {} 
-        self.mag_data_map = {}
-        self.mag_data_loaded = False # Флаг загрузки
+        self.bartels_data = None
+        self.carrington_data = None
         self.row_map_cache = {} 
         
-        self.setWindowTitle("Mission Timeline & Space Weather")
-        self.setGeometry(100, 100, 1200, 750)
+        self.setWindowTitle("Days Data")
+        self.setGeometry(100, 100, 1000, 600)
         
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
         
-        # --- ЛЕВАЯ ПАНЕЛЬ ---
+        # --- ЛЕВАЯ ПАНЕЛЬ (Инфо и Легенда) ---
         left_panel = QWidget()
-        left_panel.setFixedWidth(320)
+        left_panel.setFixedWidth(280)
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
         
-        # Настройки цвета
-        left_layout.addWidget(QLabel("<b>Color Mode:</b>"))
-        self.combo_color_mode = QComboBox()
-        self.combo_color_mode.addItems(["Instrument Quality", "Geomagnetic Activity (Kp)", "Solar Activity (F10.7)"])
-        self.combo_color_mode.currentIndexChanged.connect(self.on_mode_changed)
-        left_layout.addWidget(self.combo_color_mode)
-        
         # Легенда
-        self.legend_widget = QWidget()
-        self.legend_layout = QVBoxLayout()
-        self.legend_layout.setContentsMargins(0,0,0,0)
-        self.legend_widget.setLayout(self.legend_layout)
-        left_layout.addWidget(self.legend_widget)
+        left_layout.addWidget(QLabel("<b>Data Quality:</b>"))
+        self.add_legend_item(left_layout, "PAMELA OFF", DAY_QUAL_COLORS[0], "white")
+        self.add_legend_item(left_layout, "Good Data", DAY_QUAL_COLORS[1])
+        self.add_legend_item(left_layout, "Short File", DAY_QUAL_COLORS[2])
+        self.add_legend_item(left_layout, "Tracker OFF", DAY_QUAL_COLORS[4])
+        self.add_legend_item(left_layout, "Orientation Missed", DAY_QUAL_COLORS[6])
+        self.add_legend_item(left_layout, "Calo OFF", DAY_QUAL_COLORS[7])
         
         line = QFrame(); line.setFrameShape(QFrame.HLine); line.setFrameShadow(QFrame.Sunken)
         left_layout.addWidget(line)
         
-        # Инфо
-        self.info_box = QLabel("Loading data...")
+        # Информация о выбранном дне
+        self.info_box = QLabel("Select a day to see details...")
         self.info_box.setWordWrap(True)
         self.info_box.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
         font = self.info_box.font(); font.setPointSize(11); self.info_box.setFont(font)
@@ -85,9 +75,9 @@ class DaysDialog(QDialog):
         
         left_layout.addStretch()
         
-        # Кнопки
-        self.btn_set_start = QPushButton("Set as START")
-        self.btn_set_end = QPushButton("Set as END")
+        # Кнопки выбора
+        self.btn_set_start = QPushButton("Set as START day")
+        self.btn_set_end = QPushButton("Set as END day")
         self.btn_set_start.setEnabled(False)
         self.btn_set_end.setEnabled(False)
         self.btn_set_start.clicked.connect(self.on_set_start)
@@ -104,11 +94,10 @@ class DaysDialog(QDialog):
         self.table.cellClicked.connect(self.on_cell_clicked)
         main_layout.addWidget(self.table)
         
-        # Загрузка ТОЛЬКО легких данных (Quality)
-        self.load_data()
-        
-        self.info_box.setText("Select a day to see details...")
-        self.update_legend()
+        # Загрузка данных
+        self.load_data()         # Tbinning
+        self.load_solar_data()   # Bartels/Carrington
+        self.fill_table()        # Отрисовка
 
     def setup_table(self):
         self.table.setColumnCount(31)
@@ -138,15 +127,23 @@ class DaysDialog(QDialog):
         
         self.table.setRowCount(len(row_labels))
         self.table.setVerticalHeaderLabels(row_labels)
+        
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
 
+    def add_legend_item(self, layout, text, color_hex, text_color="black"):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"background-color: {color_hex}; color: {text_color}; border: 1px solid gray; padding: 2px;")
+        layout.addWidget(lbl)
+
     def load_data(self):
-        """Загружает Tbinning_day.mat (Быстро)."""
+        """Загружает Tbinning_day.mat."""
         path = os.path.join(config.BASE_DATA_PATH, 'UserBinnings', 'Tbinning_day.mat')
         mat = config._load_mat_file(path)
-        if not mat: return
+        if not mat: 
+            self.info_box.setText(f"Error: {path} not found.")
+            return
 
         try:
             t_bins = np.array(mat['Tbins']).flatten()
@@ -154,156 +151,60 @@ class DaysDialog(QDialog):
             
             for i, pam_day in enumerate(t_bins):
                 self.day_quality_map[int(pam_day)] = int(day_qual[i])
-                
-            self.refresh_table_colors()
         except Exception as e:
             print(f"Error loading Tbinning: {e}")
 
-    def on_mode_changed(self, index):
-        """Обработчик смены режима. Загружает MagParam только если нужно."""
-        if index > 0 and not self.mag_data_loaded:
-            QApplication.setOverrideCursor(Qt.WaitCursor) # Показать часики
-            self.info_box.setText("Loading massive Space Weather data... Please wait.")
-            QApplication.processEvents() # Обновить UI
-            
-            self.load_mag_data()
-            
-            QApplication.restoreOverrideCursor()
-            self.info_box.setText("Data loaded. Refreshing...")
-            
-        self.refresh_table_colors()
-
-    def load_mag_data(self):
-        """Загружает MagParam2.mat (Тяжелый файл)."""
-        path = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'MagParam2.mat')
-        mat = config._load_mat_file(path)
-        if not mat: 
-            print("MagParam2.mat not found.")
-            self.mag_data_loaded = True # Чтобы не пытаться снова
-            return
-
+    def load_solar_data(self):
+        """Загружает Bartels.mat и Carrington.mat."""
         try:
-            unixtime = np.array(mat['unixtime']).flatten()
-            kp = np.array(mat['Kp']).flatten()
-            dst = np.array(mat['Dst']).flatten()
-            f10 = np.array(mat['f10p7']).flatten()
-            
-            base_unix = datetime(2005, 12, 31).timestamp()
-            # Векторизованное вычисление дней
-            pam_days_all = np.floor((unixtime - base_unix) / 86400.0).astype(int)
-            
-            # Сортировка и агрегация (быстрая)
-            sort_idx = np.argsort(pam_days_all)
-            pam_days_sorted = pam_days_all[sort_idx]
-            unique_days, change_indices = np.unique(pam_days_sorted, return_index=True)
-            
-            kp_max = np.maximum.reduceat(kp[sort_idx], change_indices)
-            dst_min = np.minimum.reduceat(dst[sort_idx], change_indices)
-            
-            # Для F10.7 (mean)
-            f10_sorted = f10[sort_idx]
-            f10_sum = np.add.reduceat(f10_sorted, change_indices)
-            counts = np.diff(np.append(change_indices, len(pam_days_sorted)))
-            f10_mean = f10_sum / counts
-            
-            mission_days = set(self.day_quality_map.keys())
-            for i, day in enumerate(unique_days):
-                d_int = int(day)
-                if d_int in mission_days:
-                    self.mag_data_map[d_int] = {
-                        'Kp': kp_max[i],
-                        'Dst': dst_min[i],
-                        'F10.7': f10_mean[i]
-                    }
-            
-            self.mag_data_loaded = True
-            print(f"Loaded MagParam2. Processed {len(self.mag_data_map)} days.")
-            
+            path_b = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'Bartels.mat')
+            mat_b = config._load_mat_file(path_b)
+            if mat_b:
+                self.bartels_data = {
+                    'days': np.array(mat_b['pamdays']).flatten(),
+                    'bn': np.array(mat_b['BN']).flatten()
+                }
+
+            path_c = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'Carrington.mat')
+            mat_c = config._load_mat_file(path_c)
+            if mat_c:
+                self.carrington_data = {
+                    'days': np.array(mat_c['pamdays']).flatten(),
+                    'cn': np.array(mat_c['CN']).flatten()
+                }
         except Exception as e:
-            print(f"Error processing MagParam2: {e}")
-            self.mag_data_loaded = True # Блокируем повторные попытки
+            print(f"Error loading Solar data: {e}")
 
-    def refresh_table_colors(self):
+    def fill_table(self):
+        """Заполняет таблицу цветами."""
         self.table.setUpdatesEnabled(False)
-        try:
-            mode = self.combo_color_mode.currentIndex()
-            self.update_legend()
-            self.table.clearContents()
-            
-            base_date = datetime(2005, 12, 31)
-            
-            for pam_day, qual in self.day_quality_map.items():
-                # Оптимизированная работа с датой (без strptime)
-                dt = base_date + timedelta(days=pam_day)
-                
-                target_row = self.row_map_cache.get((dt.year, dt.month), -1)
-                if target_row == -1: continue
-                
-                col = dt.day - 1
-                item = QTableWidgetItem(str(pam_day))
-                item.setTextAlignment(Qt.AlignCenter)
-                item.setData(Qt.UserRole, pam_day)
-                
-                bg_color = Qt.white
-                text_color = Qt.black
-                
-                if mode == 0: # Quality
-                    idx = qual if qual < len(DAY_QUAL_COLORS) else 0
-                    bg_color = QColor(DAY_QUAL_COLORS[idx])
-                    if idx == 0: text_color = Qt.white # OFF = White text
-                    
-                elif mode == 1: # Kp Index
-                    if pam_day in self.mag_data_map:
-                        bg_color = get_kp_color(self.mag_data_map[pam_day]['Kp'])
-                    else:
-                        bg_color = QColor('#eeeeee')
-                        
-                elif mode == 2: # F10.7
-                    if pam_day in self.mag_data_map:
-                        f10 = self.mag_data_map[pam_day]['F10.7']
-                        if np.isnan(f10): bg_color = QColor('#eeeeee')
-                        else:
-                             norm = min(max((f10 - 70) / 130.0, 0.0), 1.0)
-                             hue = (1.0 - norm) * 0.66 
-                             bg_color = QColor.fromHsvF(hue, 0.7, 0.9)
-                    else:
-                        bg_color = QColor('#eeeeee')
-
-                item.setBackground(QBrush(bg_color))
-                item.setForeground(QBrush(text_color))
-                self.table.setItem(target_row, col, item)
-        finally:
-            self.table.setUpdatesEnabled(True)
-
-    def update_legend(self):
-        while self.legend_layout.count():
-            child = self.legend_layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-            
-        mode = self.combo_color_mode.currentIndex()
+        self.table.clearContents()
         
-        if mode == 0: # FULL QUALITY LEGEND
-            self.add_legend_item(self.legend_layout, "PAMELA OFF (0)", DAY_QUAL_COLORS[0], "white")
-            self.add_legend_item(self.legend_layout, "Good Data (1)", DAY_QUAL_COLORS[1])
-            self.add_legend_item(self.legend_layout, "Short File (2)", DAY_QUAL_COLORS[2])
-            self.add_legend_item(self.legend_layout, "Tracker OFF (4)", DAY_QUAL_COLORS[4])
-            self.add_legend_item(self.legend_layout, "Orientation Missed (6)", DAY_QUAL_COLORS[6])
-            self.add_legend_item(self.legend_layout, "Calo OFF (7)", DAY_QUAL_COLORS[7])
+        base_date = datetime(2005, 12, 31)
+        
+        for pam_day, qual in self.day_quality_map.items():
+            # Быстрая конвертация даты
+            dt = base_date + timedelta(days=pam_day)
             
-        elif mode == 1: 
-            self.add_legend_item(self.legend_layout, "Quiet (Kp < 3)", '#80df20')
-            self.add_legend_item(self.legend_layout, "Unsettled (3-4)", '#e1d81a')
-            self.add_legend_item(self.legend_layout, "Storm (Kp 5-6)", '#ecb245')
-            self.add_legend_item(self.legend_layout, "Severe (Kp 7+)", '#ec614b')
+            target_row = self.row_map_cache.get((dt.year, dt.month), -1)
+            if target_row == -1: continue
             
-        elif mode == 2:
-            self.add_legend_item(self.legend_layout, "Low Activity (Blue)", '#0000ff', "white")
-            self.add_legend_item(self.legend_layout, "High Activity (Red)", '#ff0000', "white")
-
-    def add_legend_item(self, layout, text, color_hex, text_color="black"):
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"background-color: {color_hex}; color: {text_color}; border-radius: 3px; padding: 4px; margin-bottom: 2px;")
-        layout.addWidget(lbl)
+            col = dt.day - 1
+            item = QTableWidgetItem(str(pam_day))
+            item.setTextAlignment(Qt.AlignCenter)
+            item.setData(Qt.UserRole, pam_day)
+            
+            # Цвет
+            idx = qual if qual < len(DAY_QUAL_COLORS) else 0
+            bg_color = QColor(DAY_QUAL_COLORS[idx])
+            text_color = Qt.white if idx == 0 else Qt.black
+            
+            item.setBackground(QBrush(bg_color))
+            item.setForeground(QBrush(text_color))
+            
+            self.table.setItem(target_row, col, item)
+            
+        self.table.setUpdatesEnabled(True)
 
     def pam_to_date(self, pam_day):
         base = datetime(2005, 12, 31)
@@ -316,24 +217,24 @@ class DaysDialog(QDialog):
             pam_day = item.data(Qt.UserRole)
             self.selected_day = pam_day
             date_str = self.pam_to_date(pam_day)
+            
             html = f"<h3>Day {pam_day}</h3>Date: <b>{date_str}</b><br><hr>"
             
-            # Загружаем инфо даже если мы в режиме Quality (если данные загружены)
-            # Если не загружены, и пользователь кликнул, можно попытаться загрузить для одного дня (но это сложно),
-            # или просто показать "N/A"
-            if self.mag_data_loaded and pam_day in self.mag_data_map:
-                mag = self.mag_data_map[pam_day]
-                kp_col = get_kp_color(mag['Kp']).name()
-                dst_col = "red" if mag['Dst'] < -50 else "black"
-                
-                html += f"<b>Space Weather:</b><br>"
-                html += f"Kp max: <span style='background-color:{kp_col}; padding:2px;'><b>{mag['Kp']:.1f}</b></span><br>"
-                html += f"Dst min: <span style='color:{dst_col}'><b>{mag['Dst']:.0f} nT</b></span><br>"
-                html += f"Solar F10.7: <b>{mag['F10.7']:.1f}</b>"
-            elif not self.mag_data_loaded:
-                 html += "<i>(Select 'Geomagnetic Activity' to load weather data)</i>"
-            else:
-                 html += "<i>No Space Weather data available</i>"
+            # Bartels
+            if self.bartels_data:
+                # MATLAB: find(curpamday-BN.pamdays>=0) -> last index
+                # Python: searchsorted возвращает индекс вставки, берем предыдущий
+                idx = np.searchsorted(self.bartels_data['days'], pam_day, side='right') - 1
+                if idx >= 0:
+                    bn = self.bartels_data['bn'][idx]
+                    html += f"Bartels period: <b>{bn}</b><br>"
+            
+            # Carrington
+            if self.carrington_data:
+                idx = np.searchsorted(self.carrington_data['days'], pam_day, side='right') - 1
+                if idx >= 0:
+                    cn = self.carrington_data['cn'][idx]
+                    html += f"Carrington period: <b>{cn}</b><br>"
             
             self.info_box.setText(html)
             self.btn_set_start.setEnabled(True)

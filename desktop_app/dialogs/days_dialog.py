@@ -7,7 +7,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
                              QPushButton, QHBoxLayout, QHeaderView, QLabel, QWidget,
-                             QComboBox, QFrame, QScrollArea)
+                             QComboBox, QFrame, QScrollArea, QAbstractItemView, QMessageBox) # <--- ДОБАВЛЕНЫ ИМПОРТЫ
 from PyQt5.QtGui import QColor, QBrush, QFont
 from PyQt5.QtCore import Qt
 from core import config
@@ -20,7 +20,6 @@ DAY_QUAL_COLORS = [
 ]
 
 # Цвета для Kp индекса (Space Weather)
-# 0-2 (Green), 3-4 (Yellow), 5-6 (Orange), 7+ (Red)
 def get_kp_color(kp):
     if kp < 3: return QColor('#80df20') # Quiet
     if kp < 5: return QColor('#e1d81a') # Unsettled
@@ -35,8 +34,8 @@ class DaysDialog(QDialog):
         self.selected_day = None
         
         # Данные
-        self.day_quality_map = {} # pam_day -> quality
-        self.mag_data_map = {}    # pam_day -> {Kp, Dst, F10.7}
+        self.day_quality_map = {} 
+        self.mag_data_map = {}    
         
         self.setWindowTitle("Mission Timeline & Space Weather")
         self.setGeometry(100, 100, 1200, 750)
@@ -44,20 +43,20 @@ class DaysDialog(QDialog):
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
         
-        # --- ЛЕВАЯ ПАНЕЛЬ (Инфо и Настройки) ---
+        # --- ЛЕВАЯ ПАНЕЛЬ ---
         left_panel = QWidget()
         left_panel.setFixedWidth(320)
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
         
-        # 1. Color Mode Selector
+        # 1. Color Mode
         left_layout.addWidget(QLabel("<b>Color Mode:</b>"))
         self.combo_color_mode = QComboBox()
         self.combo_color_mode.addItems(["Instrument Quality", "Geomagnetic Activity (Kp)", "Solar Activity (F10.7)"])
         self.combo_color_mode.currentIndexChanged.connect(self.refresh_table_colors)
         left_layout.addWidget(self.combo_color_mode)
         
-        # Легенда (динамическая)
+        # Легенда
         self.legend_widget = QWidget()
         self.legend_layout = QVBoxLayout()
         self.legend_layout.setContentsMargins(0,0,0,0)
@@ -68,7 +67,7 @@ class DaysDialog(QDialog):
         line = QFrame(); line.setFrameShape(QFrame.HLine); line.setFrameShadow(QFrame.Sunken)
         left_layout.addWidget(line)
         
-        # 2. Информация о дне (Space Weather Dashboard)
+        # 2. Инфо
         self.info_box = QLabel("Select a day to see details...")
         self.info_box.setWordWrap(True)
         self.info_box.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
@@ -77,11 +76,12 @@ class DaysDialog(QDialog):
         
         left_layout.addStretch()
         
-        # 3. Кнопки выбора
+        # 3. Кнопки
         self.btn_set_start = QPushButton("Set as START")
         self.btn_set_end = QPushButton("Set as END")
         self.btn_set_start.setEnabled(False)
         self.btn_set_end.setEnabled(False)
+        
         self.btn_set_start.clicked.connect(self.on_set_start)
         self.btn_set_end.clicked.connect(self.on_set_end)
         
@@ -98,7 +98,7 @@ class DaysDialog(QDialog):
         
         # Инициализация
         self.load_data()
-        self.load_mag_data() # <-- Загрузка MagParam2
+        self.load_mag_data() 
         self.update_legend()
 
     def setup_table(self):
@@ -109,7 +109,6 @@ class DaysDialog(QDialog):
         row_labels = []
         self.row_map = [] 
         
-        # Создаем строки с 2006 по 2016
         for year in range(2006, 2017):
             start_m = 6 if year == 2006 else 1
             end_m = 1 if year == 2016 else 12
@@ -120,11 +119,12 @@ class DaysDialog(QDialog):
         self.table.setRowCount(len(row_labels))
         self.table.setVerticalHeaderLabels(row_labels)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        
+        # Исправлено: теперь QAbstractItemView импортирован
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
 
     def load_data(self):
-        """Загружает Tbinning_day.mat (Качество данных)."""
         path = os.path.join(config.BASE_DATA_PATH, 'UserBinnings', 'Tbinning_day.mat')
         mat = config._load_mat_file(path)
         if not mat: return
@@ -135,77 +135,46 @@ class DaysDialog(QDialog):
             
             for i, pam_day in enumerate(t_bins):
                 self.day_quality_map[int(pam_day)] = int(day_qual[i])
-                
-            # Первичная отрисовка (Quality по умолчанию)
-            self.refresh_table_colors()
             
+            self.refresh_table_colors()
         except Exception as e:
             print(f"Error loading Tbinning: {e}")
 
     def load_mag_data(self):
-        """Загружает MagParam2.mat (Космическая погода)."""
         path = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'MagParam2.mat')
         mat = config._load_mat_file(path)
-        if not mat: 
-            print("MagParam2.mat not found.")
-            return
+        if not mat: return
 
         try:
-            # Данные в MagParam2 обычно идут по времени (unixtime)
-            # Нам нужно сопоставить их с днями PAMELA
-            # PAMSTART (Juliandate) -> Unix Timestamp
-            
-            # Упрощенно: создадим карту для быстрого доступа
-            # Предполагаем, что массивы Kp, Dst, Ap, f10p7, unixtime одинаковой длины
             unixtime = np.array(mat['unixtime']).flatten()
             kp = np.array(mat['Kp']).flatten()
             dst = np.array(mat['Dst']).flatten()
             f10 = np.array(mat['f10p7']).flatten()
             
-            # Конвертация времени (Векторизованная, для скорости)
-            # 1 день = 86400 сек.
-            # PAMSTART (JD) ~ 2005-12-31
             base_unix = datetime(2005, 12, 31).timestamp()
-            
-            # Вычисляем номер дня PAMELA для каждой точки в MagParam
             pam_days_mag = (unixtime - base_unix) / 86400.0
             pam_days_int = np.floor(pam_days_mag).astype(int)
             
-            # Агрегируем данные по дням (берем max Kp и min Dst за день)
-            # Это может занять время, поэтому лучше делать умно
-            
-            # Пройдемся по уникальным дням
             unique_days = np.unique(pam_days_int)
             
             for day in unique_days:
                 mask = (pam_days_int == day)
                 if not np.any(mask): continue
                 
-                # Берем статистику за день
-                day_kp = np.max(kp[mask]) # Max Kp за день (шторм?)
-                day_dst = np.min(dst[mask]) # Min Dst (глубина шторма)
-                day_f10 = np.mean(f10[mask]) # Средний F10.7
+                day_kp = np.max(kp[mask]) 
+                day_dst = np.min(dst[mask])
+                day_f10 = np.mean(f10[mask])
                 
-                self.mag_data_map[int(day)] = {
-                    'Kp': day_kp,
-                    'Dst': day_dst,
-                    'F10.7': day_f10
-                }
+                self.mag_data_map[int(day)] = {'Kp': day_kp, 'Dst': day_dst, 'F10.7': day_f10}
             print(f"Loaded MagParam2 for {len(self.mag_data_map)} days.")
-            
         except Exception as e:
             print(f"Error processing MagParam2: {e}")
 
     def refresh_table_colors(self):
-        """Перерисовывает таблицу в зависимости от выбранного режима."""
         mode = self.combo_color_mode.currentIndex()
         self.update_legend()
-        
-        # Очищаем/Заполняем таблицу
-        # (Для оптимизации лучше обновлять только цвета, но пересоздадим итемы для надежности)
         self.table.clearContents()
         
-        # Проходим по всем дням, для которых у нас есть данные (QualityMap - база)
         for pam_day, qual in self.day_quality_map.items():
             date_str = self.pam_to_date(pam_day)
             try: dt = datetime.strptime(date_str, '%Y-%m-%d')
@@ -226,49 +195,36 @@ class DaysDialog(QDialog):
             text_color = Qt.black
             
             if mode == 0: # Quality
-                if qual < len(DAY_QUAL_COLORS):
-                    bg_color = QColor(DAY_QUAL_COLORS[qual])
+                if qual < len(DAY_QUAL_COLORS): bg_color = QColor(DAY_QUAL_COLORS[qual])
                 if qual == 0: text_color = Qt.white
-                
-            elif mode == 1: # Kp Index
-                if pam_day in self.mag_data_map:
-                    kp = self.mag_data_map[pam_day]['Kp']
-                    bg_color = get_kp_color(kp)
-                else:
-                    bg_color = QColor('#eeeeee') # Нет данных
-                    
-            elif mode == 2: # F10.7 (Solar)
+            elif mode == 1: # Kp
+                if pam_day in self.mag_data_map: bg_color = get_kp_color(self.mag_data_map[pam_day]['Kp'])
+                else: bg_color = QColor('#eeeeee')
+            elif mode == 2: # F10.7
                 if pam_day in self.mag_data_map:
                     f10 = self.mag_data_map[pam_day]['F10.7']
-                    # Градиент синий -> красный (70 -> 200+)
                     norm = min(max((f10 - 70) / 130.0, 0.0), 1.0)
-                    # Простой heat map (Blue -> Red)
-                    hue = (1.0 - norm) * 0.66 # 0.66=Blue, 0.0=Red
+                    hue = (1.0 - norm) * 0.66 
                     bg_color = QColor.fromHsvF(hue, 0.7, 0.9)
-                else:
-                    bg_color = QColor('#eeeeee')
+                else: bg_color = QColor('#eeeeee')
 
             item.setBackground(QBrush(bg_color))
             item.setForeground(QBrush(text_color))
             self.table.setItem(target_row, col, item)
 
     def update_legend(self):
-        # Очищаем старую легенду
         while self.legend_layout.count():
             child = self.legend_layout.takeAt(0)
             if child.widget(): child.widget().deleteLater()
-            
         mode = self.combo_color_mode.currentIndex()
-        
-        if mode == 0: # Quality
+        if mode == 0: 
             self.add_legend_item(self.legend_layout, "Good Data", DAY_QUAL_COLORS[1])
-            self.add_legend_item(self.legend_layout, "Tracker/Calo Issue", DAY_QUAL_COLORS[4]) # Упрощенно
-        elif mode == 1: # Kp
+            self.add_legend_item(self.legend_layout, "Tracker/Calo Issue", DAY_QUAL_COLORS[4])
+        elif mode == 1: 
             self.add_legend_item(self.legend_layout, "Quiet (Kp < 3)", '#80df20')
-            self.add_legend_item(self.legend_layout, "Unsettled (3-4)", '#e1d81a')
             self.add_legend_item(self.legend_layout, "Storm (Kp 5-6)", '#ecb245')
             self.add_legend_item(self.legend_layout, "Severe (Kp 7+)", '#ec614b')
-        elif mode == 2: # F10.7
+        elif mode == 2:
             self.add_legend_item(self.legend_layout, "Low Activity (Blue)", '#0000ff', "white")
             self.add_legend_item(self.legend_layout, "High Activity (Red)", '#ff0000', "white")
 
@@ -288,26 +244,16 @@ class DaysDialog(QDialog):
             pam_day = item.data(Qt.UserRole)
             self.selected_day = pam_day
             date_str = self.pam_to_date(pam_day)
+            html = f"<h3>Day {pam_day}</h3>Date: <b>{date_str}</b><br><br>"
             
-            # Формируем инфо-текст
-            html = f"<h3>Day {pam_day}</h3>"
-            html += f"Date: <b>{date_str}</b><br><br>"
-            
-            # Добавляем данные о погоде
             if pam_day in self.mag_data_map:
                 mag = self.mag_data_map[pam_day]
-                
-                # Kp Style
                 kp_col = get_kp_color(mag['Kp']).name()
-                html += f"Geomag (Kp max): <span style='background-color:{kp_col}; padding:2px;'><b>{mag['Kp']:.1f}</b></span><br>"
-                
-                # Dst Style
                 dst_col = "red" if mag['Dst'] < -50 else "black"
+                html += f"Geomag (Kp max): <span style='background-color:{kp_col}; padding:2px;'><b>{mag['Kp']:.1f}</b></span><br>"
                 html += f"Dst min: <span style='color:{dst_col}'><b>{mag['Dst']:.0f} nT</b></span><br>"
-                
                 html += f"Solar F10.7: <b>{mag['F10.7']:.1f}</b> sfu"
-            else:
-                html += "<i>No Space Weather data</i>"
+            else: html += "<i>No Space Weather data</i>"
             
             self.info_box.setText(html)
             self.btn_set_start.setEnabled(True)
@@ -315,13 +261,18 @@ class DaysDialog(QDialog):
         else:
             self.selected_day = None
             self.info_box.setText("-")
+            self.btn_set_start.setEnabled(False)
+            self.btn_set_end.setEnabled(False)
 
     def on_set_start(self):
         if self.selected_day:
             self.app_state.pam_pers = [self.selected_day]
+            # Исправлено: теперь QMessageBox импортирован
+            QMessageBox.information(self, "Info", f"Day {self.selected_day} set as START")
     
     def on_set_end(self):
         if self.selected_day and self.app_state.pam_pers:
             start = self.app_state.pam_pers[0]
             if self.selected_day >= start:
                 self.app_state.pam_pers = list(range(start, self.selected_day + 1))
+                QMessageBox.information(self, "Info", f"Range set: {start} - {self.selected_day}")

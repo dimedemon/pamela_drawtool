@@ -1,30 +1,30 @@
 """
 Порт ShowDays из pan03_set02_Pamdays.m
-SMART EDITION: С интеграцией Космической Погоды (MagParam2).
+SMART EDITION: ОПТИМИЗИРОВАННЫЙ (Fast Loading)
 """
 import os
 import numpy as np
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
                              QPushButton, QHBoxLayout, QHeaderView, QLabel, QWidget,
-                             QComboBox, QFrame, QScrollArea, QAbstractItemView, QMessageBox) # <--- ДОБАВЛЕНЫ ИМПОРТЫ
-from PyQt5.QtGui import QColor, QBrush, QFont
+                             QComboBox, QFrame, QAbstractItemView, QMessageBox)
+from PyQt5.QtGui import QColor, QBrush
 from PyQt5.QtCore import Qt
 from core import config
 from core.state import ApplicationState
 
-# Цвета качества (Original)
+# Цвета качества
 DAY_QUAL_COLORS = [
     '#3d3339', '#80df20', '#e1d81a', '#ffffff', 
     '#ec614b', '#ffffff', '#ecb245', '#63eae8'
 ]
 
-# Цвета для Kp индекса (Space Weather)
 def get_kp_color(kp):
-    if kp < 3: return QColor('#80df20') # Quiet
-    if kp < 5: return QColor('#e1d81a') # Unsettled
-    if kp < 7: return QColor('#ecb245') # Storm
-    return QColor('#ec614b')            # Severe Storm
+    if np.isnan(kp): return QColor('white')
+    if kp < 3: return QColor('#80df20') 
+    if kp < 5: return QColor('#e1d81a') 
+    if kp < 7: return QColor('#ecb245') 
+    return QColor('#ec614b')            
 
 class DaysDialog(QDialog):
     
@@ -33,9 +33,9 @@ class DaysDialog(QDialog):
         self.app_state = app_state
         self.selected_day = None
         
-        # Данные
         self.day_quality_map = {} 
         self.mag_data_map = {}    
+        self.row_map_cache = {} # Кэш для быстрого поиска строк
         
         self.setWindowTitle("Mission Timeline & Space Weather")
         self.setGeometry(100, 100, 1200, 750)
@@ -49,7 +49,7 @@ class DaysDialog(QDialog):
         left_layout = QVBoxLayout()
         left_panel.setLayout(left_layout)
         
-        # 1. Color Mode
+        # Настройки цвета
         left_layout.addWidget(QLabel("<b>Color Mode:</b>"))
         self.combo_color_mode = QComboBox()
         self.combo_color_mode.addItems(["Instrument Quality", "Geomagnetic Activity (Kp)", "Solar Activity (F10.7)"])
@@ -63,12 +63,11 @@ class DaysDialog(QDialog):
         self.legend_widget.setLayout(self.legend_layout)
         left_layout.addWidget(self.legend_widget)
         
-        # Разделитель
         line = QFrame(); line.setFrameShape(QFrame.HLine); line.setFrameShadow(QFrame.Sunken)
         left_layout.addWidget(line)
         
-        # 2. Инфо
-        self.info_box = QLabel("Select a day to see details...")
+        # Инфо
+        self.info_box = QLabel("Loading data...")
         self.info_box.setWordWrap(True)
         self.info_box.setStyleSheet("background-color: #f0f0f0; padding: 10px; border-radius: 5px;")
         font = self.info_box.font(); font.setPointSize(11); self.info_box.setFont(font)
@@ -76,12 +75,11 @@ class DaysDialog(QDialog):
         
         left_layout.addStretch()
         
-        # 3. Кнопки
+        # Кнопки
         self.btn_set_start = QPushButton("Set as START")
         self.btn_set_end = QPushButton("Set as END")
         self.btn_set_start.setEnabled(False)
         self.btn_set_end.setEnabled(False)
-        
         self.btn_set_start.clicked.connect(self.on_set_start)
         self.btn_set_end.clicked.connect(self.on_set_end)
         
@@ -96,9 +94,11 @@ class DaysDialog(QDialog):
         self.table.cellClicked.connect(self.on_cell_clicked)
         main_layout.addWidget(self.table)
         
-        # Инициализация
+        # Загрузка данных (Оптимизирована)
         self.load_data()
-        self.load_mag_data() 
+        self.load_mag_data() # <-- Теперь это быстро
+        
+        self.info_box.setText("Select a day to see details...")
         self.update_legend()
 
     def setup_table(self):
@@ -107,24 +107,34 @@ class DaysDialog(QDialog):
         
         months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
         row_labels = []
-        self.row_map = [] 
+        self.row_map_cache = {} # Очищаем кэш
         
-        for year in range(2006, 2017):
-            start_m = 6 if year == 2006 else 1
-            end_m = 1 if year == 2016 else 12
-            for m in range(start_m, end_m + 1):
+        curr_row = 0
+        # 2006 (Jun-Dec)
+        for m in range(6, 13):
+            row_labels.append(f"2006 {months[m-1]}")
+            self.row_map_cache[(2006, m)] = curr_row
+            curr_row += 1
+            
+        # 2007-2015
+        for year in range(2007, 2016):
+            for m in range(1, 13):
                 row_labels.append(f"{year} {months[m-1]}")
-                self.row_map.append((year, m))
+                self.row_map_cache[(year, m)] = curr_row
+                curr_row += 1
+        
+        # 2016 Jan
+        row_labels.append("2016 Jan")
+        self.row_map_cache[(2016, 1)] = curr_row
         
         self.table.setRowCount(len(row_labels))
         self.table.setVerticalHeaderLabels(row_labels)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        
-        # Исправлено: теперь QAbstractItemView импортирован
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
 
     def load_data(self):
+        """Загружает Tbinning_day.mat."""
         path = os.path.join(config.BASE_DATA_PATH, 'UserBinnings', 'Tbinning_day.mat')
         mat = config._load_mat_file(path)
         if not mat: return
@@ -133,90 +143,148 @@ class DaysDialog(QDialog):
             t_bins = np.array(mat['Tbins']).flatten()
             day_qual = np.array(mat['DayQuality']).flatten()
             
+            # Заполняем карту
             for i, pam_day in enumerate(t_bins):
                 self.day_quality_map[int(pam_day)] = int(day_qual[i])
-            
+                
             self.refresh_table_colors()
         except Exception as e:
             print(f"Error loading Tbinning: {e}")
 
     def load_mag_data(self):
+        """
+        Загружает MagParam2.mat.
+        ОПТИМИЗАЦИЯ: Используем быструю индексацию вместо цикла for-loop.
+        """
         path = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'MagParam2.mat')
         mat = config._load_mat_file(path)
-        if not mat: return
+        if not mat: 
+            print("MagParam2.mat not found.")
+            return
 
         try:
+            print("Optimizing MagParam data processing...")
             unixtime = np.array(mat['unixtime']).flatten()
             kp = np.array(mat['Kp']).flatten()
             dst = np.array(mat['Dst']).flatten()
             f10 = np.array(mat['f10p7']).flatten()
             
+            # 1. Вычисляем дни PAMELA (векторизованно)
             base_unix = datetime(2005, 12, 31).timestamp()
-            pam_days_mag = (unixtime - base_unix) / 86400.0
-            pam_days_int = np.floor(pam_days_mag).astype(int)
+            pam_days_all = np.floor((unixtime - base_unix) / 86400.0).astype(int)
             
-            unique_days = np.unique(pam_days_int)
+            # 2. Сортируем данные по дням (это позволяет использовать reduceat)
+            sort_idx = np.argsort(pam_days_all)
+            pam_days_sorted = pam_days_all[sort_idx]
+            kp_sorted = kp[sort_idx]
+            dst_sorted = dst[sort_idx]
+            f10_sorted = f10[sort_idx]
             
-            for day in unique_days:
-                mask = (pam_days_int == day)
-                if not np.any(mask): continue
-                
-                day_kp = np.max(kp[mask]) 
-                day_dst = np.min(dst[mask])
-                day_f10 = np.mean(f10[mask])
-                
-                self.mag_data_map[int(day)] = {'Kp': day_kp, 'Dst': day_dst, 'F10.7': day_f10}
-            print(f"Loaded MagParam2 for {len(self.mag_data_map)} days.")
+            # 3. Находим границы дней (индексы, где меняется день)
+            # unique_days - уникальные значения
+            # change_indices - индексы начала каждого нового дня в отсортированном массиве
+            unique_days, change_indices = np.unique(pam_days_sorted, return_index=True)
+            
+            # 4. Используем reduceat для быстрой агрегации (ufunc.reduceat)
+            # Это в сотни раз быстрее цикла
+            
+            # Max Kp
+            kp_max = np.maximum.reduceat(kp_sorted, change_indices)
+            # Min Dst
+            dst_min = np.minimum.reduceat(dst_sorted, change_indices)
+            # Mean F10.7 (add.reduceat / count)
+            f10_sum = np.add.reduceat(f10_sorted, change_indices)
+            # Кол-во точек в каждом дне (diff индексов)
+            # Добавляем длину массива в конец для вычисления последнего интервала
+            indices_diff = np.diff(np.append(change_indices, len(pam_days_sorted)))
+            f10_mean = f10_sum / indices_diff
+            
+            # 5. Заполняем словарь (это быстро, так как дней всего ~3-4 тыс)
+            # Фильтруем только те дни, которые есть в миссии PAMELA (для экономии памяти)
+            mission_days = set(self.day_quality_map.keys())
+            
+            for i, day in enumerate(unique_days):
+                d_int = int(day)
+                if d_int in mission_days:
+                    self.mag_data_map[d_int] = {
+                        'Kp': kp_max[i],
+                        'Dst': dst_min[i],
+                        'F10.7': f10_mean[i]
+                    }
+            
+            print(f"Loaded MagParam2 fast! Processed {len(self.mag_data_map)} relevant days.")
+            
         except Exception as e:
             print(f"Error processing MagParam2: {e}")
+            import traceback
+            traceback.print_exc()
 
     def refresh_table_colors(self):
-        mode = self.combo_color_mode.currentIndex()
-        self.update_legend()
-        self.table.clearContents()
-        
-        for pam_day, qual in self.day_quality_map.items():
-            date_str = self.pam_to_date(pam_day)
-            try: dt = datetime.strptime(date_str, '%Y-%m-%d')
-            except: continue
+        """Перерисовывает таблицу. Отключает обновления для скорости."""
+        self.table.setUpdatesEnabled(False) # <--- Блокировка отрисовки
+        try:
+            mode = self.combo_color_mode.currentIndex()
+            self.update_legend()
+            self.table.clearContents()
             
-            target_row = -1
-            for r_idx, (y, m) in enumerate(self.row_map):
-                if y == dt.year and m == dt.month:
-                    target_row = r_idx; break
-            if target_row == -1: continue
-            
-            col = dt.day - 1
-            item = QTableWidgetItem(str(pam_day))
-            item.setTextAlignment(Qt.AlignCenter)
-            item.setData(Qt.UserRole, pam_day)
-            
-            bg_color = Qt.white
-            text_color = Qt.black
-            
-            if mode == 0: # Quality
-                if qual < len(DAY_QUAL_COLORS): bg_color = QColor(DAY_QUAL_COLORS[qual])
-                if qual == 0: text_color = Qt.white
-            elif mode == 1: # Kp
-                if pam_day in self.mag_data_map: bg_color = get_kp_color(self.mag_data_map[pam_day]['Kp'])
-                else: bg_color = QColor('#eeeeee')
-            elif mode == 2: # F10.7
-                if pam_day in self.mag_data_map:
-                    f10 = self.mag_data_map[pam_day]['F10.7']
-                    norm = min(max((f10 - 70) / 130.0, 0.0), 1.0)
-                    hue = (1.0 - norm) * 0.66 
-                    bg_color = QColor.fromHsvF(hue, 0.7, 0.9)
-                else: bg_color = QColor('#eeeeee')
+            # Проходим по дням
+            for pam_day, qual in self.day_quality_map.items():
+                # Быстрая конвертация даты
+                date_str = self.pam_to_date(pam_day)
+                try: 
+                    # Парсинг вручную быстрее чем strptime
+                    y, m, d = map(int, date_str.split('-'))
+                except: continue
+                
+                # Быстрый поиск строки через кэш
+                target_row = self.row_map_cache.get((y, m), -1)
+                if target_row == -1: continue
+                
+                col = d - 1
+                item = QTableWidgetItem(str(pam_day))
+                item.setTextAlignment(Qt.AlignCenter)
+                item.setData(Qt.UserRole, pam_day)
+                
+                bg_color = Qt.white
+                text_color = Qt.black
+                
+                if mode == 0: # Quality
+                    idx = qual if qual < len(DAY_QUAL_COLORS) else 0
+                    bg_color = QColor(DAY_QUAL_COLORS[idx])
+                    if idx == 0: text_color = Qt.white
+                    
+                elif mode == 1: # Kp Index
+                    if pam_day in self.mag_data_map:
+                        bg_color = get_kp_color(self.mag_data_map[pam_day]['Kp'])
+                    else:
+                        bg_color = QColor('#eeeeee')
+                        
+                elif mode == 2: # F10.7 (Solar)
+                    if pam_day in self.mag_data_map:
+                        f10 = self.mag_data_map[pam_day]['F10.7']
+                        if np.isnan(f10):
+                             bg_color = QColor('#eeeeee')
+                        else:
+                             norm = min(max((f10 - 70) / 130.0, 0.0), 1.0)
+                             hue = (1.0 - norm) * 0.66 
+                             bg_color = QColor.fromHsvF(hue, 0.7, 0.9)
+                    else:
+                        bg_color = QColor('#eeeeee')
 
-            item.setBackground(QBrush(bg_color))
-            item.setForeground(QBrush(text_color))
-            self.table.setItem(target_row, col, item)
+                item.setBackground(QBrush(bg_color))
+                item.setForeground(QBrush(text_color))
+                self.table.setItem(target_row, col, item)
+        finally:
+            self.table.setUpdatesEnabled(True) # <--- Разблокировка
 
     def update_legend(self):
+        # Очистка легенды
         while self.legend_layout.count():
             child = self.legend_layout.takeAt(0)
             if child.widget(): child.widget().deleteLater()
+            
         mode = self.combo_color_mode.currentIndex()
+        
         if mode == 0: 
             self.add_legend_item(self.legend_layout, "Good Data", DAY_QUAL_COLORS[1])
             self.add_legend_item(self.legend_layout, "Tracker/Calo Issue", DAY_QUAL_COLORS[4])
@@ -248,11 +316,15 @@ class DaysDialog(QDialog):
             
             if pam_day in self.mag_data_map:
                 mag = self.mag_data_map[pam_day]
-                kp_col = get_kp_color(mag['Kp']).name()
-                dst_col = "red" if mag['Dst'] < -50 else "black"
-                html += f"Geomag (Kp max): <span style='background-color:{kp_col}; padding:2px;'><b>{mag['Kp']:.1f}</b></span><br>"
-                html += f"Dst min: <span style='color:{dst_col}'><b>{mag['Dst']:.0f} nT</b></span><br>"
-                html += f"Solar F10.7: <b>{mag['F10.7']:.1f}</b> sfu"
+                kp = mag['Kp']
+                kp_col = get_kp_color(kp).name()
+                dst = mag['Dst']
+                dst_col = "red" if dst < -50 else "black"
+                f10 = mag['F10.7']
+                
+                html += f"Geomag (Kp max): <span style='background-color:{kp_col}; padding:2px;'><b>{kp:.1f}</b></span><br>"
+                html += f"Dst min: <span style='color:{dst_col}'><b>{dst:.0f} nT</b></span><br>"
+                html += f"Solar F10.7: <b>{f10:.1f}</b> sfu"
             else: html += "<i>No Space Weather data</i>"
             
             self.info_box.setText(html)
@@ -267,7 +339,6 @@ class DaysDialog(QDialog):
     def on_set_start(self):
         if self.selected_day:
             self.app_state.pam_pers = [self.selected_day]
-            # Исправлено: теперь QMessageBox импортирован
             QMessageBox.information(self, "Info", f"Day {self.selected_day} set as START")
     
     def on_set_end(self):

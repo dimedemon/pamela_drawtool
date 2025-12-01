@@ -11,7 +11,7 @@ from core import config
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 from desktop_app.dialogs.long_periods import LongPeriodsDialog
-from desktop_app.dialogs.days_dialog import DaysDialog # <--- НОВЫЙ ИМПОРТ
+from desktop_app.dialogs.days_dialog import DaysDialog # <--- Импорт диалога дней
 
 # Константа PAMSTART из config
 PAM_START_JD = config.PAMSTART
@@ -19,15 +19,6 @@ PAM_START_JD = config.PAMSTART
 def pam_to_date_str(pam_day):
     """Конвертирует номер дня PAMELA в строку даты (YYYY-MM-DD)."""
     try:
-        # В Python даты считаются от 1.1.1, а JD от 4713 BC.
-        # Упрощенная конвертация: добавляем дни к базовой дате
-        # (Требует точной настройки PAMSTART в config.py как datetime object или offset)
-        
-        # Вариант: считаем смещение дней
-        # Предполагаем, что config.PAMSTART это число (JD).
-        # Для простоты используем datetime.fromordinal если PAMSTART это serial date,
-        # но здесь реализуем простую арифметику, если PAMSTART это JD.
-        
         # HACK: Для прототипа используем базовую дату 2005-12-31 + pam_day
         base_date = datetime(2005, 12, 31)
         target_date = base_date + timedelta(days=float(pam_day))
@@ -41,7 +32,7 @@ def date_str_to_pam(date_str):
         dt = datetime.strptime(date_str, '%Y-%m-%d')
         base_date = datetime(2005, 12, 31)
         delta = dt - base_date
-        return int(delta.days) # Возвращаем float или int
+        return int(delta.days)
     except ValueError:
         return None
 
@@ -90,11 +81,14 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     row3 = QHBoxLayout()
     edit_day_start = QLineEdit()
     edit_day_end = QLineEdit()
+    
+    # Кнопка для вызова календаря
+    btn_show_days = QPushButton("?") 
+    btn_show_days.setFixedWidth(30)
+    
     btn_clr_days = QPushButton("clr")
     btn_clr_days.setFixedWidth(30)
-    btn_show_days = QPushButton("?") # <--- ДОБАВИТЬ
-    btn_show_days.setFixedWidth(30)  # <--- ДОБАВИТЬ
-  
+    
     row3.addWidget(QLabel("Pam Day Start:"))
     row3.addWidget(edit_day_start)
     row3.addWidget(btn_show_days)
@@ -123,12 +117,13 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
         btn_show_period.setEnabled(is_period_mode)
         edit_period.setEnabled(is_period_mode)
         
-        # Включаем/выключаем даты в зависимости от режима (как в MATLAB)
+        # Включаем/выключаем даты в зависимости от режима
         is_date_mode = not is_period_mode
         edit_date_start.setEnabled(is_date_mode)
         edit_date_end.setEnabled(is_date_mode)
         edit_day_start.setEnabled(is_date_mode)
         edit_day_end.setEnabled(is_date_mode)
+        btn_show_days.setEnabled(is_date_mode) # Кнопка календаря
 
     connector.tbin_changed.connect(on_core_tbin_changed)
 
@@ -149,17 +144,9 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     def on_day_start_edited():
         try:
             val = int(edit_day_start.text())
-            # Обновляем список дней. Для простоты пока [start, start] если end пустой
-            # или [start]
-            current_pers = app_state.pam_pers
-            if not current_pers:
-                app_state.pam_pers = [val]
-            else:
-                # Если меняем старт, сбрасываем диапазон или обновляем начало?
-                # Упрощенно:
-                app_state.pam_pers = [val]
+            app_state.pam_pers = [val]
         except ValueError:
-            pass # Игнорируем некорректный ввод
+            pass
 
     edit_day_start.editingFinished.connect(on_day_start_edited)
 
@@ -169,29 +156,26 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
         if pam_day is not None:
             app_state.pam_pers = [pam_day]
         else:
-            # Если формат неверен, возвращаем старое значение
             on_core_pam_pers_changed(app_state.pam_pers)
 
     edit_date_start.editingFinished.connect(on_date_start_edited)
 
-    # --- Core -> GUI (Обновление ВСЕХ полей при изменении pam_pers) ---
+    # --- Core -> GUI (Обновление ВСЕХ полей) ---
     def on_core_pam_pers_changed(new_pers_list):
         if not new_pers_list:
-            edit_day_start.setText("")
-            edit_day_end.setText("")
-            edit_date_start.setText("yyyy-mm-dd")
-            edit_date_end.setText("yyyy-mm-dd")
+            with QSignalBlocker(edit_day_start): edit_day_start.setText("")
+            with QSignalBlocker(edit_day_end): edit_day_end.setText("")
+            with QSignalBlocker(edit_date_start): edit_date_start.setText("yyyy-mm-dd")
+            with QSignalBlocker(edit_date_end): edit_date_end.setText("yyyy-mm-dd")
             return
 
         start_day = new_pers_list[0]
         end_day = new_pers_list[-1] if len(new_pers_list) > 1 else start_day
         
-        # Обновляем поля дней
         with QSignalBlocker(edit_day_start): edit_day_start.setText(str(start_day))
         with QSignalBlocker(edit_day_end): 
             edit_day_end.setText(str(end_day) if len(new_pers_list) > 1 else "")
 
-        # Обновляем поля дат (конвертация)
         with QSignalBlocker(edit_date_start): edit_date_start.setText(pam_to_date_str(start_day))
         with QSignalBlocker(edit_date_end): 
             txt = pam_to_date_str(end_day) if len(new_pers_list) > 1 else ""
@@ -203,13 +187,14 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     def on_clr_click():
         app_state.pam_pers = []
     btn_clr_days.clicked.connect(on_clr_click)
-  
+    
+    # --- Кнопка '?' для дней (ShowDays) ---
     def on_show_days_click():
-    # Открываем календарь
-    dialog = DaysDialog(app_state, parent_window)
-    dialog.exec_()
+        dialog = DaysDialog(app_state, parent_window)
+        dialog.exec_()
+        
     btn_show_days.clicked.connect(on_show_days_click)
-  
+
     # 3. Инициализация
     on_core_tbin_changed(app_state.tbin)
     on_core_period_changed(app_state.period)

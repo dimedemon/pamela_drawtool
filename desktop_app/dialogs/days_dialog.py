@@ -249,4 +249,79 @@ class DaysDialog(QDialog):
                     bg_color = QColor('#eeeeee')
 
             item.setBackground(QBrush(bg_color))
-            item.setForeground(QBrush(text_color
+            item.setForeground(QBrush(text_color))
+            self.table.setItem(target_row, col, item)
+
+    def update_legend(self):
+        # Очищаем старую легенду
+        while self.legend_layout.count():
+            child = self.legend_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+            
+        mode = self.combo_color_mode.currentIndex()
+        
+        if mode == 0: # Quality
+            self.add_legend_item(self.legend_layout, "Good Data", DAY_QUAL_COLORS[1])
+            self.add_legend_item(self.legend_layout, "Tracker/Calo Issue", DAY_QUAL_COLORS[4]) # Упрощенно
+        elif mode == 1: # Kp
+            self.add_legend_item(self.legend_layout, "Quiet (Kp < 3)", '#80df20')
+            self.add_legend_item(self.legend_layout, "Unsettled (3-4)", '#e1d81a')
+            self.add_legend_item(self.legend_layout, "Storm (Kp 5-6)", '#ecb245')
+            self.add_legend_item(self.legend_layout, "Severe (Kp 7+)", '#ec614b')
+        elif mode == 2: # F10.7
+            self.add_legend_item(self.legend_layout, "Low Activity (Blue)", '#0000ff', "white")
+            self.add_legend_item(self.legend_layout, "High Activity (Red)", '#ff0000', "white")
+
+    def add_legend_item(self, layout, text, color_hex, text_color="black"):
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"background-color: {color_hex}; color: {text_color}; border-radius: 3px; padding: 2px;")
+        layout.addWidget(lbl)
+
+    def pam_to_date(self, pam_day):
+        base = datetime(2005, 12, 31)
+        target = base + timedelta(days=float(pam_day))
+        return target.strftime('%Y-%m-%d')
+
+    def on_cell_clicked(self, row, col):
+        item = self.table.item(row, col)
+        if item:
+            pam_day = item.data(Qt.UserRole)
+            self.selected_day = pam_day
+            date_str = self.pam_to_date(pam_day)
+            
+            # Формируем инфо-текст
+            html = f"<h3>Day {pam_day}</h3>"
+            html += f"Date: <b>{date_str}</b><br><br>"
+            
+            # Добавляем данные о погоде
+            if pam_day in self.mag_data_map:
+                mag = self.mag_data_map[pam_day]
+                
+                # Kp Style
+                kp_col = get_kp_color(mag['Kp']).name()
+                html += f"Geomag (Kp max): <span style='background-color:{kp_col}; padding:2px;'><b>{mag['Kp']:.1f}</b></span><br>"
+                
+                # Dst Style
+                dst_col = "red" if mag['Dst'] < -50 else "black"
+                html += f"Dst min: <span style='color:{dst_col}'><b>{mag['Dst']:.0f} nT</b></span><br>"
+                
+                html += f"Solar F10.7: <b>{mag['F10.7']:.1f}</b> sfu"
+            else:
+                html += "<i>No Space Weather data</i>"
+            
+            self.info_box.setText(html)
+            self.btn_set_start.setEnabled(True)
+            self.btn_set_end.setEnabled(True)
+        else:
+            self.selected_day = None
+            self.info_box.setText("-")
+
+    def on_set_start(self):
+        if self.selected_day:
+            self.app_state.pam_pers = [self.selected_day]
+    
+    def on_set_end(self):
+        if self.selected_day and self.app_state.pam_pers:
+            start = self.app_state.pam_pers[0]
+            if self.selected_day >= start:
+                self.app_state.pam_pers = list(range(start, self.selected_day + 1))

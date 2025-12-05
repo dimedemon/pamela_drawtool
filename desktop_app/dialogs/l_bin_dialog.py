@@ -91,17 +91,13 @@ class LBinDialog(QDialog):
         try:
             l_bins = config.BIN_INFO['Lbin'][self.app_state.lb - 1]
             
-            # Собираем L (L_min) и L_max (L_max)
             l_values = [l_bins[row] for row in selected_rows]
             l_max_values = [l_bins[row + 1] for row in selected_rows]
             
-            # Сохраняем в app_state
             self.app_state.l = l_values
-            # Если выбрано одно значение, обновляем Lmax
-            if len(l_max_values) == 1:
-                self.app_state.l_max = l_max_values[0]
+            self.app_state.l_max = l_max_values # <--- ВСЕГДА ПРИСВАИВАЕМ СПИСОК
             
-            self.accept() # Закрываем
+            self.accept()
             
         except Exception as e:
             print(f"Ошибка при выборе L-бина: {e}")

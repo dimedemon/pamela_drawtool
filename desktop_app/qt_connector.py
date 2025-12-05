@@ -31,6 +31,7 @@ class QtConnector(QObject):
     period_changed = pyqtSignal(str)
     pam_pers_changed = pyqtSignal(list)
     fullday_changed = pyqtSignal(bool)
+    passages_changed = pyqtSignal(list)
     
     # Geomagnetic parameters
     l_changed = pyqtSignal(list)
@@ -75,6 +76,7 @@ class QtConnector(QObject):
         self._app_state.period_changed.connect(self._on_period_changed)
         self._app_state.pam_pers_changed.connect(self._on_pam_pers_changed)
         self._app_state.fullday_changed.connect(self._on_fullday_changed)
+        self._app_state.passages_changed.connect(self._on_passages_changed)
         
         self._app_state.l_changed.connect(self._on_l_changed)
         self._app_state.l_max_changed.connect(self._on_l_max_changed)
@@ -111,7 +113,8 @@ class QtConnector(QObject):
     def _on_period_changed(self, sender, **kwargs): self.period_changed.emit(kwargs.get('value'))
     def _on_pam_pers_changed(self, sender, **kwargs): self.pam_pers_changed.emit(kwargs.get('value'))
     def _on_fullday_changed(self, sender, **kwargs): self.fullday_changed.emit(kwargs.get('value'))
-    
+    def _on_passages_changed(self, sender, **kwargs): self.passages_changed.emit(kwargs.get('value'))
+        
     def _on_l_changed(self, sender, **kwargs): self.l_changed.emit(kwargs.get('value'))
     def _on_l_max_changed(self, sender, **kwargs): self.l_max_changed.emit(kwargs.get('value'))
     def _on_pitch_changed(self, sender, **kwargs): self.pitch_changed.emit(kwargs.get('value'))

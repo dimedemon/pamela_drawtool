@@ -30,6 +30,7 @@ class ApplicationState:
     tbin_changed = signal('tbin_changed')
     pam_pers_changed = signal('pam_pers_changed')
     fullday_changed = signal('fullday_changed')
+    passages_changed = signal('passages_changed')
     
     # --- ВОТ ТЕ САМЫЕ СИГНАЛЫ, КОТОРЫХ НЕ ХВАТАЛО ---
     dt_changed = signal('dt_changed')
@@ -194,6 +195,12 @@ class ApplicationState:
         
     @property
     def passages(self): return self._passages
+
+    @passages.setter
+    def passages(self, value):
+        if self._passages != value:
+            self._passages = value
+            self.passages_changed.send(self, value=value)
 
     # --- НОВЫЕ СВОЙСТВА (Time) ---
     @property

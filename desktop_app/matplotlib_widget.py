@@ -1,116 +1,115 @@
 """
-Виджет Matplotlib (Фаза 4 - IMPROVED)
-
-Добавлен NavigationToolbar и динамическая смена макета.
+Виджет Matplotlib (Фаза 4 - 2D SUPPORT)
+Поддерживает errorbar и pcolormesh (тепловые карты).
 """
-
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from matplotlib.colors import LogNorm, Normalize
 import matplotlib.pyplot as plt
+import numpy as np
 
 class MplCanvas(QWidget):
-    """
-    Виджет Matplotlib с поддержкой тулбара и смены сетки.
-    """
     def __init__(self, parent=None, width=5, height=4, dpi=100):
         super(MplCanvas, self).__init__(parent)
 
-        # 1. Наводим красоту (стиль графиков)
-        try:
-            plt.style.use('seaborn-v0_8-darkgrid') # Или 'ggplot', 'bmh'
-        except:
-            pass # Если стиль не найден, используем стандартный
-
-        # Настройки шрифтов
+        try: plt.style.use('seaborn-v0_8-darkgrid')
+        except: pass
         plt.rcParams.update({'font.size': 10, 'axes.titlesize': 12})
 
-        # 2. Создаем фигуру
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         self.canvas = FigureCanvas(self.fig)
-        
-        # 3. Добавляем Toolbar (Зум, Пан, Сохранение)
         self.toolbar = NavigationToolbar(self.canvas, self)
 
-        # 4. Макет
         layout = QVBoxLayout()
-        layout.addWidget(self.toolbar) # Панель инструментов сверху
-        layout.addWidget(self.canvas)  # Холст снизу
+        layout.addWidget(self.toolbar)
+        layout.addWidget(self.canvas)
         self.setLayout(layout)
         
-        # Инициализируем оси
         self.axes_list = []
-        self.set_layout_mode(1) # По умолчанию 1 график
+        self.set_layout_mode(1)
 
     def set_layout_mode(self, mode):
-        """
-        Переключает режим отображения:
-        mode=1 -> 1 график (1x1)
-        mode=4 -> 4 графика (2x2)
-        """
-        self.fig.clf() # Очищаем фигуру полностью
+        self.fig.clf()
         self.axes_list = []
-        
         if mode == 1:
-            # Один большой график
             ax = self.fig.add_subplot(1, 1, 1)
             self.axes_list.append(ax)
         elif mode == 4:
-            # Сетка 2x2
             for i in range(1, 5):
                 ax = self.fig.add_subplot(2, 2, i)
                 self.axes_list.append(ax)
-        
         self.fig.tight_layout()
         self.canvas.draw()
 
     def clear_all_axes(self):
-        """Очищает содержимое осей (не удаляя сами оси)."""
         for ax in self.axes_list:
-            ax.cla()
-            ax.grid(True)
+            ax.clear() # clear() полнее чем cla()
+            # Удаляем старые colorbars, если они были
+            # (в matplotlib это сложно, проще очистить фигуру, но пока так)
 
     def draw_plot(self, plot_data: dict):
-        """
-        Рисует график.
-        """
-        # Определяем, на каких осях рисовать
+        """Рисует 1D или 2D график."""
         target_ax_idx = plot_data.get("ax_index", 0)
-        
-        # Если мы в режиме "1 график", но данные просят 2-й или 3-й,
-        # мы все равно рисуем на 1-м (наложение), либо игнорируем.
-        # Давайте рисовать на текущем активном:
-        if target_ax_idx >= len(self.axes_list):
-            target_ax_idx = 0 # Fallback на первый график
-            
+        if target_ax_idx >= len(self.axes_list): target_ax_idx = 0
         ax = self.axes_list[target_ax_idx]
         
         plot_type = plot_data.get("plot_type", "errorbar")
+        label = plot_data.get("label", "")
         
-        # --- Рисование ---
+        # --- 1D ERRORBAR ---
         if plot_type == "errorbar":
             ax.errorbar(
                 plot_data.get("x", []),
                 plot_data.get("y", []),
                 xerr=plot_data.get("x_err", None),
                 yerr=plot_data.get("y_err", None),
-                label=plot_data.get("label", ""),
-                linestyle='-',
-                marker='.',
-                capsize=3 # Красивые "шапочки" у баров ошибок
+                label=label,
+                linestyle='-', marker='.', capsize=3
             )
-        
-        # --- Оформление ---
-        if plot_data.get("xscale") == "log": ax.set_xscale('log')
-        if plot_data.get("yscale") == "log": ax.set_yscale('log')
+            ax.grid(True)
+            if plot_data.get("xscale") == "log": ax.set_xscale('log')
+            if plot_data.get("yscale") == "log": ax.set_yscale('log')
             
+            # Легенда
+            if label: ax.legend()
+
+        # --- 2D PCOLOR (Heatmap) ---
+        elif plot_type == "pcolor":
+            # Подготовка данных для pcolormesh
+            X = plot_data.get("x") # Границы бинов X
+            Y = plot_data.get("y") # Границы бинов Y
+            Z = plot_data.get("z") # Значения (2D массив)
+            
+            # Логарифмическая шкала цвета (Z)
+            norm = None
+            if plot_data.get("zscale") == "log":
+                # Защита от 0 и отрицательных для LogNorm
+                vmin = np.min(Z[Z > 0]) if np.any(Z > 0) else 1e-5
+                vmax = np.max(Z)
+                norm = LogNorm(vmin=vmin, vmax=vmax)
+            else:
+                norm = Normalize(vmin=np.min(Z), vmax=np.max(Z))
+
+            # Рисуем карту
+            # shading='flat' требует, чтобы X и Y были на 1 больше Z по размеру (границы)
+            # или 'nearest'/'auto' для центров.
+            # В MATLAB pcolor использует границы.
+            pcm = ax.pcolormesh(X, Y, Z, norm=norm, cmap='jet', shading='auto')
+            
+            # Colorbar
+            cbar = self.fig.colorbar(pcm, ax=ax)
+            cbar.set_label(plot_data.get("zlabel", ""))
+            
+            ax.grid(False) # На картах сетка обычно мешает
+            
+            if plot_data.get("xscale") == "log": ax.set_xscale('log')
+            if plot_data.get("yscale") == "log": ax.set_yscale('log')
+
+        # --- Оформление ---
         ax.set_xlabel(plot_data.get("xlabel", ""))
         ax.set_ylabel(plot_data.get("ylabel", ""))
-        ax.set_title(plot_data.get("label", ""))
+        ax.set_title(label)
         
-        # Включаем легенду, если есть лейблы
-        if ax.get_legend_handles_labels()[1]:
-            ax.legend()
-            
         self.canvas.draw()

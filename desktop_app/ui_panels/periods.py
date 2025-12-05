@@ -1,6 +1,8 @@
 """
 Порт pan01_set04_Periods, pan03_set01_Dates, pan03_set02_Pamdays
-И ТЕПЕРЬ pan03_set03_Passages (Passages + Full Day)
+и pan03_set03_Passages.
+
+Объединяет управление Tbin/Period, датами, днями и пролетами.
 """
 from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QWidget, QHBoxLayout, QLabel, QComboBox, 
@@ -32,6 +34,9 @@ def _list_to_str(val_list):
     return ", ".join(str(v) for v in val_list)
 
 def create_periods_widget(app_state: ApplicationState, connector: QtConnector, parent_window):
+    """
+    Создает QGroupBox "Temporal Parameters" с выбором Tbin, Period и Dates.
+    """
     widget = QGroupBox("Temporal Parameters")
     layout = QVBoxLayout()
     widget.setLayout(layout)
@@ -64,7 +69,7 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     row3.addWidget(QLabel("End:")); row3.addWidget(edit_day_end); row3.addWidget(btn_clr_days)
     layout.addLayout(row3)
     
-    # --- 4. Passages & Full Day (НОВОЕ) ---
+    # --- 4. Passages & Full Day ---
     row4 = QHBoxLayout()
     edit_passages = QLineEdit()
     btn_show_pass = QPushButton("?"); btn_show_pass.setFixedWidth(30)
@@ -79,13 +84,18 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
     # LOGIC
     # -----------------------------------------------------------------
 
-    # T Bins
-    combo_tbins.currentIndexChanged.connect(lambda i: setattr(app_state, 'tbin', config.TBIN_STR[i]))
-    def on_core_tbin(val):
-        if val in config.TBIN_STR:
-            with QSignalBlocker(combo_tbins): combo_tbins.setCurrentIndex(config.TBIN_STR.index(val))
+    # --- T Bins ---
+    def on_tbins_changed(index):
+        app_state.tbin = config.TBIN_STR[index]
+
+    combo_tbins.currentIndexChanged.connect(on_tbins_changed)
+
+    def on_core_tbin_changed(new_tbin):
+        if new_tbin in config.TBIN_STR:
+            with QSignalBlocker(combo_tbins):
+                combo_tbins.setCurrentIndex(config.TBIN_STR.index(new_tbin))
         
-        is_per = (val == 'passage' or val == 'Separate Periods')
+        is_per = (new_tbin == 'passage' or new_tbin == 'Separate Periods')
         btn_show_period.setEnabled(is_per); edit_period.setEnabled(is_per)
         
         is_date = not is_per
@@ -93,17 +103,26 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
         edit_day_start.setEnabled(is_date); edit_day_end.setEnabled(is_date)
         btn_show_days.setEnabled(is_date)
         
-        # Логика Passages (активны только если выбран конкретный день/дни, но не Separate Periods)
-        is_pass = (val == 'day' or val == 'passage')
+        is_pass = (new_tbin == 'day' or new_tbin == 'passage')
         edit_passages.setEnabled(is_pass); btn_show_pass.setEnabled(is_pass); chk_full_day.setEnabled(is_pass)
 
-    connector.tbin_changed.connect(on_core_tbin)
+    connector.tbin_changed.connect(on_core_tbin_changed)
 
-    # Period
-    connector.period_changed.connect(lambda v: edit_period.setText(v))
-    btn_show_period.clicked.connect(lambda: LongPeriodsDialog(app_state, parent_window).exec_())
+    # --- Period ---
+    # ВАЖНО: Определяем функцию ДО того, как ее вызвать внизу
+    def on_core_period_changed(new_period):
+        with QSignalBlocker(edit_period):
+            edit_period.setText(new_period)
+    
+    connector.period_changed.connect(on_core_period_changed)
 
-    # Days / Dates
+    def on_show_periods_click():
+        if app_state.tbin == 'Separate Periods':
+            dialog = LongPeriodsDialog(app_state, parent_window)
+            dialog.exec_()
+    btn_show_period.clicked.connect(on_show_periods_click)
+
+    # --- Days / Dates ---
     def on_day_edit():
         try: app_state.pam_pers = [int(edit_day_start.text())]
         except: pass
@@ -114,65 +133,74 @@ def create_periods_widget(app_state: ApplicationState, connector: QtConnector, p
         if d: app_state.pam_pers = [d]
     edit_date_start.editingFinished.connect(on_date_edit)
     
-    def on_core_pam(val):
-        if not val:
-            edit_day_start.setText(""); edit_day_end.setText("")
-            edit_date_start.setText("yyyy-mm-dd"); edit_date_end.setText("yyyy-mm-dd")
-        else:
-            s, e = val[0], val[-1] if len(val)>1 else val[0]
-            with QSignalBlocker(edit_day_start): edit_day_start.setText(str(s))
-            with QSignalBlocker(edit_day_end): edit_day_end.setText(str(e) if len(val)>1 else "")
-            with QSignalBlocker(edit_date_start): edit_date_start.setText(pam_to_date_str(s))
-            with QSignalBlocker(edit_date_end): edit_date_end.setText(pam_to_date_str(e) if len(val)>1 else "")
-    connector.pam_pers_changed.connect(on_core_pam)
-    
-    btn_clr_days.clicked.connect(lambda: setattr(app_state, 'pam_pers', []))
-    btn_show_days.clicked.connect(lambda: DaysDialog(app_state, parent_window).exec_())
+    # ВАЖНО: Определяем функцию ДО вызова
+    def on_core_pam_pers_changed(new_pers_list):
+        if not new_pers_list:
+            with QSignalBlocker(edit_day_start): edit_day_start.setText("")
+            with QSignalBlocker(edit_day_end): edit_day_end.setText("")
+            with QSignalBlocker(edit_date_start): edit_date_start.setText("yyyy-mm-dd")
+            with QSignalBlocker(edit_date_end): edit_date_end.setText("yyyy-mm-dd")
+            return
 
-    # --- Passages Logic (НОВОЕ) ---
+        start_day = new_pers_list[0]
+        end_day = new_pers_list[-1] if len(new_pers_list) > 1 else start_day
+        
+        with QSignalBlocker(edit_day_start): edit_day_start.setText(str(start_day))
+        with QSignalBlocker(edit_day_end): 
+            edit_day_end.setText(str(end_day) if len(new_pers_list) > 1 else "")
+
+        with QSignalBlocker(edit_date_start): edit_date_start.setText(pam_to_date_str(start_day))
+        with QSignalBlocker(edit_date_end): 
+            txt = pam_to_date_str(end_day) if len(new_pers_list) > 1 else ""
+            edit_date_end.setText(txt)
+            
+    connector.pam_pers_changed.connect(on_core_pam_pers_changed)
     
-    # GUI -> Core
+    def on_clr_click():
+        app_state.pam_pers = []
+    btn_clr_days.clicked.connect(on_clr_click)
+    
+    def on_show_days_click():
+        dialog = DaysDialog(app_state, parent_window)
+        dialog.exec_()
+    btn_show_days.clicked.connect(on_show_days_click)
+
+    # --- Passages Logic ---
     def on_pass_edit():
         txt = edit_passages.text()
         try:
-            # Парсим "1, 2, 3"
             vals = [int(x.strip()) for x in txt.split(',') if x.strip()]
             app_state.passages = vals
-            if vals:
-                app_state.fullday = False # Если ввели пролеты, снимаем Full day
+            if vals: app_state.fullday = False
         except: pass
     edit_passages.editingFinished.connect(on_pass_edit)
     
     def on_fullday_click(checked):
         app_state.fullday = checked
-        if checked:
-            app_state.passages = [] # Очищаем пролеты
+        if checked: app_state.passages = []
     chk_full_day.clicked.connect(on_fullday_click)
 
-    # Core -> GUI
-    def on_core_pass(val):
+    # ВАЖНО: Определяем функции ДО вызова
+    def on_core_passages_changed(val):
         with QSignalBlocker(edit_passages): edit_passages.setText(_list_to_str(val))
-    connector.passages_changed.connect(on_core_pass)
+    connector.passages_changed.connect(on_core_passages_changed)
     
-    def on_core_fullday(val):
+    def on_core_fullday_changed(val):
         with QSignalBlocker(chk_full_day): chk_full_day.setChecked(val)
-        # Блокируем ввод пролетов, если Full Day
         edit_passages.setEnabled(not val)
         btn_show_pass.setEnabled(not val)
-    connector.fullday_changed.connect(on_core_fullday)
+    connector.fullday_changed.connect(on_core_fullday_changed)
     
-    # Кнопка ? для Passages
     def on_show_pass_click():
-        # Нужен файл PassageStat.m или логика загрузки
         QMessageBox.information(parent_window, "TODO", "Диалог выбора пролетов (PassageStat) требует портирования.")
     btn_show_pass.clicked.connect(on_show_pass_click)
 
-
-    # Инициализация
-    on_core_tbin(app_state.tbin)
+    # 4. Инициализация
+    # Теперь все функции определены выше, NameError не будет
+    on_core_tbin_changed(app_state.tbin)
     on_core_period_changed(app_state.period)
-    on_core_pam(app_state.pam_pers)
-    on_core_pass(app_state.passages)
-    on_core_fullday(app_state.fullday)
+    on_core_pam_pers_changed(app_state.pam_pers)
+    on_core_passages_changed(app_state.passages)
+    on_core_fullday_changed(app_state.fullday)
 
     return widget

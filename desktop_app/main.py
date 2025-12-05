@@ -1,21 +1,27 @@
 """
-Главное приложение (Фаза 4) - SCROLLABLE LEFT PANEL
-Исправлена проблема с исчезающей кнопкой PLOT.
+Главное приложение (Фаза 4) - ФИНАЛЬНАЯ СБОРКА
+Включает:
+- Скроллбар в левой панели (QScrollArea)
+- Кнопку PLOT
+- Переключатель видов (1x1, 2x2)
+- Интеграцию с matplotlib
 """
 
 import sys
 import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, 
                              QHBoxLayout, QVBoxLayout, QLabel,
-                             QPushButton, QButtonGroup, QScrollArea) # <--- QScrollArea
+                             QPushButton, QButtonGroup, QScrollArea)
 from PyQt5.QtCore import Qt 
 
+# Добавляем путь к корню проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.state import ApplicationState
 from core import processing 
 from desktop_app.qt_connector import QtConnector
 
+# --- Импорты виджетов ---
 from desktop_app.ui_panels.input_data_source import create_input_data_source_widget
 from desktop_app.ui_panels.selections import create_selections_widget
 from desktop_app.ui_panels.versions import create_versions_widget
@@ -76,9 +82,9 @@ class MainWindow(QMainWindow):
 
         # 3. Создаем ScrollArea и кладем в нее контент
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True) # Важно!
+        scroll_area.setWidgetResizable(True) 
         scroll_area.setWidget(left_content_widget)
-        scroll_area.setFixedWidth(350) # Фиксируем ширину левой панели
+        scroll_area.setFixedWidth(380) # Чуть шире для удобства
         
         # --- Правая Панель (Графики) ---
         right_panel = QWidget()
@@ -99,7 +105,7 @@ class MainWindow(QMainWindow):
         self.plot_canvas = MplCanvas(self) 
         right_layout.addWidget(self.plot_canvas)
         
-        # --- Собираем макет (Скролл слева, График справа) ---
+        # --- Собираем макет ---
         main_layout.addWidget(scroll_area, 1) 
         main_layout.addWidget(right_panel, 3) 
         
@@ -114,16 +120,57 @@ class MainWindow(QMainWindow):
         print("Главное Окно успешно создано.")
 
     def on_view_changed(self, mode_id):
+        """Переключает режим отображения графиков."""
         self.plot_canvas.set_layout_mode(mode_id)
 
     def on_plot_button_clicked(self):
-        # ... (Код этой функции остается без изменений, см. прошлый ответ) ...
-        # Для экономии места я его сократил, но вы вставьте полную версию
+        """Обработчик нажатия на кнопку PLOT."""
+        print("\n===================================")
         print("Кнопка PLOT нажата!")
+        print("Собираем данные из app_state...")
+        
         try:
             self.plot_canvas.clear_all_axes()
+            
+            # Запрашиваем данные у ядра
             plot_data_list = processing.get_plot_data(self.app_state, ax_index=0)
             
             if not plot_data_list:
+                print(">>> processing.py вернул ПУСТОЙ список.")
                 if self.plot_canvas.axes_list:
-                    self.plot_canvas.axes_list
+                    ax = self.plot_canvas.axes_list[0]
+                    ax.text(0.5, 0.5, 
+                            "Данные не сгенерированы.\n(processing.py вернул пустой список)", 
+                            ha='center', va='center', 
+                            transform=ax.transAxes)
+                    self.plot_canvas.canvas.draw()
+            else:
+                print(f">>> processing.py успешно вернул {len(plot_data_list)} набор(а) данных.")
+                for plot_data in plot_data_list:
+                    self.plot_canvas.draw_plot(plot_data)
+        
+        except Exception as e:
+            print(f"!!! КРИТИЧЕСКАЯ ОШИБКА: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            if self.plot_canvas.axes_list:
+                ax = self.plot_canvas.axes_list[0]
+                ax.text(0.5, 0.5, f"ОШИБКА:\n{e}", 
+                        ha='center', va='center', color='red',
+                        transform=ax.transAxes)
+                self.plot_canvas.canvas.draw()
+            
+        print("===================================\n")
+
+if __name__ == "__main__":
+    try:
+        from PyQt5.QtCore import Qt
+    except ImportError:
+        print("Ошибка: PyQt5 не установлен.")
+        sys.exit(1)
+
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())

@@ -1,117 +1,92 @@
 """
-Порт pan02_DrawObject.m
-Включает:
-- pan02_set01_PlotKindVar (PlotKind, What)
-- pan02_set02_JunitsNmin (J units, min N)
+Панель управления графиком.
+Добавлен тип 12: Flux Distribution.
 """
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QComboBox, QLineEdit, QGroupBox, QVBoxLayout
-from PyQt5.QtCore import QSignalBlocker, Qt
-from core import config
+from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QComboBox, QSpinBox, QSpacerItem, QSizePolicy)
+from PyQt5.QtCore import QSignalBlocker
 from core.state import ApplicationState
 from desktop_app.qt_connector import QtConnector
 
+PLOT_TYPES = {
+    1: "Energy spectra",
+    2: "Rigidity spectra",
+    3: "Pitch angle profile",
+    4: "Radial profile",
+    5: "Temporal variations",
+    6: "Variations along orbit",
+    8: "L-pitch map",
+    9: "Energy-pitch map",
+    10: "Energy-L map",
+    11: "Auxiliary parameters",
+    12: "Flux Distribution (Hist)" # <--- НОВЫЙ ПУНКТ
+}
+
 def create_plot_controls_widget(app_state: ApplicationState, connector: QtConnector, parent_window):
-    """
-    Создает QGroupBox "Distribution & entity to plot".
-    """
-    # 1. Создаем главный контейнер (pan02)
-    widget = QGroupBox("Distribution & entity to plot")
-    main_layout = QVBoxLayout()
-    widget.setLayout(main_layout)
-    main_layout.setContentsMargins(5, 10, 5, 5)
+    widget = QGroupBox("Plot controls")
+    layout = QVBoxLayout()
+    widget.setLayout(layout)
+    layout.setContentsMargins(5, 10, 5, 5)
 
-    # --- Макет 1: PlotKind и What (set01) ---
-    layout_set01 = QHBoxLayout()
+    # 1. Plot Type
+    row1 = QHBoxLayout()
     combo_plot_kind = QComboBox()
+    # Сортируем ключи, чтобы меню было аккуратным
+    sorted_keys = sorted(PLOT_TYPES.keys())
+    for k in sorted_keys:
+        combo_plot_kind.addItem(PLOT_TYPES[k], k)
+        
+    row1.addWidget(QLabel("Plot type:"))
+    row1.addWidget(combo_plot_kind)
+    layout.addLayout(row1)
+
+    # 2. What
+    row2 = QHBoxLayout()
     combo_what = QComboBox()
-    
-    combo_plot_kind.addItems(config.PLOT_KINDS)
-    combo_what.addItems(config.DISTR_VARS)
-    
-    layout_set01.addWidget(combo_plot_kind, 1) # 1 = доля ширины
-    layout_set01.addWidget(combo_what, 1)    # 1 = доля ширины
-    main_layout.addLayout(layout_set01)
-    
-    # --- Макет 2: J units и min N (set02) ---
-    layout_set02 = QHBoxLayout()
-    label_junit = QLabel("J units:")
-    combo_junit = QComboBox()
-    combo_junit.addItems(['(MeV cm^2 sr sec)^-1', '(GeV m^2 sr sec)^-1'])
-    
-    label_min_n = QLabel("min N:")
-    edit_min_n = QLineEdit()
-    edit_min_n.setText(str(app_state.n_min)) # Устанавливаем 0
-    
-    layout_set02.addWidget(label_junit)
-    layout_set02.addWidget(combo_junit)
-    layout_set02.addStretch()
-    layout_set02.addWidget(label_min_n)
-    layout_set02.addWidget(edit_min_n)
-    main_layout.addLayout(layout_set02)
+    combo_what.addItems(["Flux", "Ratio"]) 
+    row2.addWidget(QLabel("What:"))
+    row2.addWidget(combo_what)
+    layout.addLayout(row2)
 
-    # -----------------------------------------------------------------
-    # 3. Связывание (Binding)
-    # -----------------------------------------------------------------
-
-    # --- Связь: GUI -> Ядро ---
+    # 3. Units / N min
+    row3 = QHBoxLayout()
+    combo_units = QComboBox()
+    combo_units.addItems(["MeV", "GeV"])
+    spin_n_min = QSpinBox()
+    spin_n_min.setRange(0, 1000)
     
-    def on_plot_kind_changed(index):
-        app_state.plot_kind = index + 1 # +1 т.к. MATLAB value с 1
+    row3.addWidget(QLabel("Units:"))
+    row3.addWidget(combo_units)
+    row3.addWidget(QLabel("N min:"))
+    row3.addWidget(spin_n_min)
+    layout.addLayout(row3)
 
-    def on_what_changed(index):
-        app_state.what = index + 1 # +1
-        # Логика из pan02_set01 (включение/выключение J units)
-        if (index + 1) > 1: # Если не "Flux"
-            combo_junit.setEnabled(False)
-        else:
-            combo_junit.setEnabled(True)
-
-    def on_junit_changed(index):
-        app_state.units = index # 0=MeV, 1=GeV
-
-    def on_min_n_changed():
-        try:
-            app_state.n_min = int(edit_min_n.text())
-        except ValueError:
-            edit_min_n.setText(str(app_state.n_min)) # Сброс
+    # --- Logic ---
+    def on_plot_kind_changed(idx):
+        kind_id = combo_plot_kind.itemData(idx)
+        app_state.plot_kind = kind_id
 
     combo_plot_kind.currentIndexChanged.connect(on_plot_kind_changed)
-    combo_what.currentIndexChanged.connect(on_what_changed)
-    combo_junit.currentIndexChanged.connect(on_junit_changed)
-    edit_min_n.editingFinished.connect(on_min_n_changed)
-    
-    # --- Связь: Ядро -> GUI ---
-    
-    def on_core_plot_kind_changed(new_pk_value):
-        with QSignalBlocker(combo_plot_kind):
-            combo_plot_kind.setCurrentIndex(new_pk_value - 1)
 
-    def on_core_what_changed(new_what_value):
-        with QSignalBlocker(combo_what):
-            combo_what.setCurrentIndex(new_what_value - 1)
-        # Также триггерим обновление J units enable/disable
-        on_what_changed(new_what_value - 1)
+    def on_core_plot_kind(val):
+        idx = combo_plot_kind.findData(val)
+        if idx >= 0:
+            with QSignalBlocker(combo_plot_kind):
+                combo_plot_kind.setCurrentIndex(idx)
+    
+    connector.plot_kind_changed.connect(on_core_plot_kind)
 
-    def on_core_units_changed(new_units_value):
-        with QSignalBlocker(combo_junit):
-            combo_junit.setCurrentIndex(new_units_value)
-            
-    def on_core_n_min_changed(new_n_min_value):
-        with QSignalBlocker(edit_min_n):
-            edit_min_n.setText(str(new_n_min_value))
+    # Units
+    combo_units.currentIndexChanged.connect(lambda i: setattr(app_state, 'units', i))
+    connector.units_changed.connect(lambda v: combo_units.setCurrentIndex(v))
 
-    connector.plot_kind_changed.connect(on_core_plot_kind_changed)
-    connector.what_changed.connect(on_core_what_changed)
-    connector.units_changed.connect(on_core_units_changed)
-    connector.n_min_changed.connect(on_core_n_min_changed)
-    
-    # 4. Инициализация
-    on_core_plot_kind_changed(app_state.plot_kind)
-    on_core_what_changed(app_state.what)
-    on_core_units_changed(app_state.units)
-    on_core_n_min_changed(app_state.n_min)
-    
-    # TODO: Реализовать сложную логику фильтрации
-    # (setGeomagParamEn.m и SetPeriodTypeDependancees.m)
-    
+    # N min
+    spin_n_min.valueChanged.connect(lambda v: setattr(app_state, 'n_min', v))
+    connector.n_min_changed.connect(lambda v: spin_n_min.setValue(v))
+
+    # Init
+    on_core_plot_kind(app_state.plot_kind)
+    combo_units.setCurrentIndex(app_state.units)
+    spin_n_min.setValue(app_state.n_min)
+
     return widget

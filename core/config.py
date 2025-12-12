@@ -1,6 +1,8 @@
 """
-Модуль конфигурации (Фаза 4 - LOCAL DATA)
-Возврат к локальной папке data.
+Модуль конфигурации (Фаза 5 - FINAL RESTORED)
+Исправлено:
+1. Вернуты потерянные константы (DATA_SOURCE_STR и др).
+2. METADATA_FILE теперь ищется и в корне data, и в data/dirflux_newStructure.
 """
 import os
 import numpy as np
@@ -9,19 +11,65 @@ from datetime import datetime
 from . import kinematics
 
 # === ПУТИ ===
-# Определяем абсолютный путь к папке data внутри проекта
-# (core/../data)
+# Абсолютный путь к папке data внутри проекта
 BASE_DATA_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
 
 # Путь к BinningInfo.mat (всегда в корне data)
 BINNING_INFO_FILE = os.path.join(BASE_DATA_PATH, 'BinningInfo.mat')
 
-# Путь к метаданным (может быть в корне data или в подпапке, ищем в корне)
-METADATA_FILE = os.path.join(BASE_DATA_PATH, 'file_metadata.mat')
+# Путь к метаданным (умный поиск)
+_meta_root = os.path.join(BASE_DATA_PATH, 'file_metadata.mat')
+_meta_sub = os.path.join(BASE_DATA_PATH, 'dirflux_newStructure', 'file_metadata.mat')
+
+if os.path.exists(_meta_root):
+    METADATA_FILE = _meta_root
+elif os.path.exists(_meta_sub):
+    METADATA_FILE = _meta_sub
+else:
+    METADATA_FILE = _meta_root # Дефолт, даже если нет
 
 # --- Константы ---
 PAMSTART = (datetime(2005, 12, 31) - datetime(1, 1, 1)).days + 1721425.5 
 HTML_TEXT_COLOR = ('<HTML><FONT color="gray">', '</FONT></HTML>')
+
+# --- СПИСКИ ДЛЯ ИНТЕРФЕЙСА (Вернул на место!) ---
+DATA_SOURCE_STR = ['PAMELA exp. data','Efficiency simulation',
+                   'Anisotropic flux simulation','External exp. data',
+                   'Empyrical models','Space weather data']
+
+GEN_STR = ['Alt1sec', 'Babs1sec', 'BB01sec', 'Blaz', 'Blzen', 'L1sec',
+    'Lat1sec', 'Lon1sec', 'Roll1sec', 'SPitch1sec', 'Yaw1sec',
+    'aTime', 'eqpitchlim', 'LocPitch', 'maxgyro', 'mingyro',
+    'TimeGap1sec', 'TimeGap2sec', 'trkMaskI1sec', 'trkMaskS1sec', 'Trig1sec']
+
+GEN_X_STR = ['aTime', 'aTime', 'L1sec', 'BB01sec', 'Alt1sec', 'Lat1sec', 'Lon1sec']
+
+WHAT_X_VARS = ['Date & time', 'time from entrance', 'L', 'B/B0', 'Altitude',
+    'latitude', 'longitude']
+
+WHAT_Y_VARS = ['Altitude', 'Babs', 'B/B_0', 'Baz loc', 'Bzen loc', 'L', 'latitude',
+    'longitude', 'Roll', 'SPitch', 'Yaw', 'absolute time',
+    'maximum eqpitch', 'Local Pitch', 'maximum gyroangle',
+    'minimum gyroangle', 'TimeGap1', 'TimeGap2', 'TrkMaskI', 'TrkMaskS', 'Trigger']
+
+UNIT_X_STR = ['m', 's', 'Re', '', 'km', '^{\circ}', '^{\circ}']
+
+UNIT_STR = ['km', 'G', '', 'G', 'G', 'Re', '^{\circ}', '^{\circ}', '^{\circ}',
+    '^{\circ}', '^{\circ}', 's', '^{\circ}', '^{\circ}', '^{\circ}',
+    '^{\circ}', 's', 's', '', '', '' ]
+
+TBIN_STR = ['passage','day','month','3months','6months','year','bartels','Separate Periods']
+
+DISTR_VARS = ['Flux','Number of events','Gathering power','livetime',
+              'Countrate','Relative error of flux','Four entities at once']
+
+PLOT_KINDS = ['Energy spectra','Rigidity spectra','pitch-angular distribution',
+              'Radial distribution','Temporal variations','Variations along orbit',
+              'Fluxes Histogram','L-pitch map','E-pitch map','E-L map',
+              'Auxiliary parameters']
+
+SP_WEATHER_STR = ['f10p7','SSN','Dst','Kp','Ap']
+
 
 # --- Загрузчик ---
 def _load_mat_file(path):
@@ -31,7 +79,7 @@ def _load_mat_file(path):
 
 # --- Метаданные (Selection/Geo) ---
 def get_selection_coexistence(file_path=METADATA_FILE):
-    # Дефолтные значения (на случай, если метаданные еще не скопировали)
+    # Дефолтные значения
     def_geo = ['RB3']; def_sel = ['ItalianH']; def_gs = np.ones((1,1), dtype=bool)
     
     mat = _load_mat_file(file_path)
@@ -65,7 +113,6 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     print(f"Loading BinningInfo from {file_path}...")
     mat = _load_mat_file(file_path)
     
-    # Фейк-генератор, если файла пока нет (чтобы GUI запустился)
     if mat is None:
         print("Warning: BinningInfo.mat not found. Using dummy data.")
         keys = ['pitchbin', 'Lbin', 'Ebin']
@@ -73,7 +120,6 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
         bb = {k: np.array([['Desc', 'Val']]) for k in keys}
         return bininfo, bb
 
-    # Авто-распаковка структур
     src = mat
     if not hasattr(mat, 'pitchbin'):
         for key in dir(mat):
@@ -124,11 +170,5 @@ if GS_ARRAY.ndim != 2: GS_ARRAY = np.ones((len(GEO_STR), len(SELECT_STR)), dtype
 
 try: BIN_INFO, BB_INFO = load_binning_info()
 except: BIN_INFO, BB_INFO = {}, {}
-
-TBIN_STR = ['passage','day','month','3months','6months','year','bartels','Separate Periods']
-PLOT_KINDS = ['Energy spectra','Rigidity spectra','pitch-angular distribution',
-              'Radial distribution','Temporal variations','Variations along orbit',
-              'Fluxes Histogram','L-pitch map','E-pitch map','E-L map',
-              'Auxiliary parameters']
 
 print("Config: Initialized.")

@@ -1,24 +1,39 @@
 """
-Модуль конфигурации (Фаза 1) - ОБНОВЛЕННЫЙ
+Модуль конфигурации (Фаза 1) - EXTERNAL DRIVE EDITION
 
 Хранит константы, пути, загрузчики метаданных И БИННИНГОВ.
-(Портировано из getGUIConstants.m и DrawTool3.m)
+Настроен для работы с внешним накопителем.
 """
 
 import os
 import numpy as np
 from scipy.io import loadmat
 from datetime import datetime
-from . import kinematics  # Импортируем наш новый модуль
+from . import kinematics  # Импортируем наш модуль кинематики
 
 # --- Константы (из DrawTool3.m) ---
-PAMSTART = (datetime(2005, 12, 31) - datetime(1, 1, 1)).days + 1721425.5 # juliandate(datetime(2005,12,31))
+PAMSTART = (datetime(2005, 12, 31) - datetime(1, 1, 1)).days + 1721425.5 
 
-# --- Пути ---
-BASE_DATA_PATH = 'data' 
-GEN_PATH = os.path.join(BASE_DATA_PATH, 'dirflux_newStructure')
+# --- ПУТИ (Настройка внешнего диска) ---
+# Путь к корню папки с данными на внешнем диске
+BASE_DATA_PATH = '/Volumes/T7 Touch/dirflux_newStructure'
+
+# GEN_PATH - это корень структуры данных (совпадает с BASE_DATA_PATH)
+GEN_PATH = BASE_DATA_PATH
+
+# Путь к файлу метаданных (предполагается, что он в корне dirflux_newStructure)
 METADATA_FILE = os.path.join(GEN_PATH, 'file_metadata.mat')
-BINNING_INFO_FILE = os.path.join(BASE_DATA_PATH, 'BinningInfo.mat') # Путь к BinningInfo.mat
+
+# Путь к BinningInfo.mat
+# Логика: сначала смотрим на диске, если нет — берем из папки проекта data/
+_ext_bin_path = os.path.join(BASE_DATA_PATH, 'BinningInfo.mat')
+_loc_bin_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'BinningInfo.mat')
+
+if os.path.exists(_ext_bin_path):
+    BINNING_INFO_FILE = _ext_bin_path
+else:
+    # Fallback на локальный файл, если на диске нет
+    BINNING_INFO_FILE = os.path.abspath(_loc_bin_path)
 
 # --- Константы GUI (из getGUIConstants.m) ---
 HTML_TEXT_COLOR = ('<HTML><FONT color="gray">', '</FONT></HTML>')
@@ -66,10 +81,9 @@ SP_WEATHER_STR = ['f10p7','SSN','Dst','Kp','Ap']
 def _load_mat_file(file_path):
     """Общая функция-загрузчик .mat файлов."""
     if not os.path.exists(file_path):
-        print(f"ВНИМАНИЕ: Файл не найден по пути: {file_path}")
+        # print(f"ВНИМАНИЕ: Файл не найден по пути: {file_path}")
         return None
     try:
-        # character_set='windows-1251' может понадобиться, если есть кириллица
         return loadmat(file_path, squeeze_me=True, struct_as_record=False)
     except Exception as e:
         print(f"Ошибка при чтении .mat файла ({file_path}): {e}")
@@ -79,14 +93,18 @@ def get_selection_coexistence(file_path=METADATA_FILE):
     """Портировано из getSelectionCoexistence."""
     loaded_data = _load_mat_file(file_path)
     if loaded_data is None:
+        print(f"Warning: Metadata file not found at {file_path}")
         return [], [], np.array([])
     
-    # .mat файлы, загруженные с squeeze_me=True, ведут себя иначе
-    valid_indices = (loaded_data['GeoSelections'] != 'None') & \
-                    (loaded_data['Selections'] != 'None')
+    # Проверка наличия полей
+    if not hasattr(loaded_data, 'GeoSelections') or not hasattr(loaded_data, 'Selections'):
+        return [], [], np.array([])
+
+    valid_indices = (loaded_data.GeoSelections != 'None') & \
+                    (loaded_data.Selections != 'None')
     
-    valid_geo = loaded_data['GeoSelections'][valid_indices]
-    valid_sel = loaded_data['Selections'][valid_indices]
+    valid_geo = loaded_data.GeoSelections[valid_indices]
+    valid_sel = loaded_data.Selections[valid_indices]
     
     geo_str = sorted(list(np.unique(valid_geo)))
     select_str = sorted(list(np.unique(valid_sel)))
@@ -108,7 +126,10 @@ def get_unique_stdbinnings(file_path=METADATA_FILE):
     if loaded_data is None:
         return []
     
-    stdbinnings = loaded_data['stdbinnings']
+    if not hasattr(loaded_data, 'stdbinnings'):
+        return []
+
+    stdbinnings = loaded_data.stdbinnings
     non_empty = stdbinnings[stdbinnings != '']
     unique_binnings = sorted(list(np.unique(non_empty)))
     return unique_binnings
@@ -116,10 +137,8 @@ def get_unique_stdbinnings(file_path=METADATA_FILE):
 def load_binning_info(file_path=BINNING_INFO_FILE):
     """
     Загружает BinningInfo.mat и воссоздает структуры bininfo и bb.
-    (Портировано из setOptions в DrawTool3.m) - ИСПРАВЛЕНАЯ ВЕРСИЯ
     """
     print(f"Загрузка BinningInfo.mat из {file_path}...")
-    # struct_as_record=False важен, чтобы .mat грузился как объект
     bininfo_mat = _load_mat_file(file_path)
     if bininfo_mat is None:
         raise IOError(f"Критическая ошибка: BinningInfo.mat не найден по пути {file_path}")
@@ -130,91 +149,114 @@ def load_binning_info(file_path=BINNING_INFO_FILE):
     binnings = ['pitchbin', 'Lbin', 'Ebin']
     binningsdesc = ['pitchbdesc', 'Lbindesc', 'Ebindesc']
 
-    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-    # .mat файл содержит переменные 'pitchbin', 'Lbin' и т.д. напрямую,
-    # а не внутри структуры 'bininfo'.
+    # Извлекаем данные (в файле они лежат как поля объекта)
     for b, desc in zip(binnings, binningsdesc):
-        if b not in bininfo_mat:
+        if not hasattr(bininfo_mat, b):
             raise KeyError(f"Ключ '{b}' не найден в BinningInfo.mat")
-        if desc not in bininfo_mat:
-            raise KeyError(f"Ключ '{desc}' не найден в BinningInfo.mat")
-            
-        bininfo[b] = bininfo_mat[b]
-        bininfo[desc] = bininfo_mat[desc]
-    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+        
+        # Получаем данные
+        bininfo[b] = getattr(bininfo_mat, b)
+        bininfo[desc] = getattr(bininfo_mat, desc)
 
     # Добавляем Rig (конвертация)
     bininfo['Rig'] = []
-    # Убедимся, что Ebin это список/массив, а не скаляр
     e_bins_data = bininfo['Ebin']
-    if not isinstance(e_bins_data, (list, np.ndarray)):
-        e_bins_data = [e_bins_data]
+    
+    # Обработка структуры (иногда это массив массивов)
+    if isinstance(e_bins_data, np.ndarray) and e_bins_data.dtype == object:
+        # Если это массив объектов (cell array в Matlab)
+        iter_data = e_bins_data
+    elif not isinstance(e_bins_data, (list, np.ndarray)):
+        iter_data = [e_bins_data]
+    else:
+        iter_data = e_bins_data
         
-    for e_bin_array in e_bins_data:
-        # Убедимся, что e_bin_array это массив numpy для операций
-        e_bin_array = np.asarray(e_bin_array)
-        M = 0.938 * np.ones_like(e_bin_array)
-        Z = np.ones_like(e_bin_array)
-        rig_array = kinematics.convert_T_to_R(e_bin_array, M, Z, Z)
-        bininfo['Rig'].append(rig_array)
+    # Если это просто массив чисел (один биннинг), заворачиваем в список
+    if isinstance(iter_data, np.ndarray) and iter_data.dtype != object and iter_data.ndim == 1:
+        iter_data = [iter_data]
 
-    # bb (структура для GUI, как в MATLAB)
+    temp_rig_list = []
+    for e_bin_array in iter_data:
+        e_arr = np.asarray(e_bin_array)
+        M = 0.938 * np.ones_like(e_arr)
+        Z = np.ones_like(e_arr)
+        rig_array = kinematics.convert_T_to_R(e_arr, M, Z, Z)
+        temp_rig_list.append(rig_array)
+    bininfo['Rig'] = np.array(temp_rig_list, dtype=object)
+
+    # Формируем структуру bb для GUI
     for i, b_name in enumerate(binnings):
         b_data = bininfo[b_name]
-        b_desc = bininfo[b_name]
+        b_desc = bininfo[binningsdesc[i]]
         
-        # Гарантируем, что b_data и b_desc - это списки
-        if not isinstance(b_data, (list, np.ndarray)):
-             b_data = [b_data]
-        if not isinstance(b_desc, (list, np.ndarray)):
-             b_desc = [b_desc]
-        
-        # Находим максимальную длину *после* того, как убедились, что это списки
+        # Нормализация входных данных в список массивов
+        if isinstance(b_data, np.ndarray) and b_data.dtype == object:
+            data_list = b_data
+            desc_list = b_desc
+        elif isinstance(b_data, np.ndarray) and b_data.ndim == 1:
+             data_list = [b_data]
+             desc_list = [b_desc] if not isinstance(b_desc, (list, np.ndarray)) else b_desc
+        else:
+             data_list = [b_data]
+             desc_list = [b_desc]
+
+        # Находим макс длину для паддинга
         max_len = 0
-        for arr in b_data:
-            if hasattr(arr, '__len__'):
-                max_len = max(max_len, len(arr))
-            else:
-                max_len = max(max_len, 1) # Если это скаляр
+        for arr in data_list:
+            if hasattr(arr, '__len__'): max_len = max(max_len, len(arr))
+            else: max_len = max(max_len, 1)
         
         bb_list = []
         
-        for j, arr in enumerate(b_data):
-            desc = b_desc[j]
-            # Гарантируем, что arr это массив numpy
+        for j, arr in enumerate(data_list):
+            # Описание
+            if j < len(desc_list):
+                desc_val = desc_list[j]
+            else: 
+                desc_val = "Unknown"
+                
             arr = np.atleast_1d(arr)
-            
-            # Создаем строки с padding из ''
             row_str = np.array(arr, dtype=str)
+            
             padded_row = np.full(max_len + 1, '', dtype=object)
-            padded_row[0] = desc
+            padded_row[0] = desc_val
             padded_row[1:len(row_str)+1] = row_str
             bb_list.append(padded_row)
             
+            # Для Ebin добавляем Rigidity
             if b_name == 'Ebin':
-                # Добавляем строку с Жесткостью
-                rig_array = np.atleast_1d(bininfo['Rig'][j])
-                rig_row = np.array(rig_array, dtype=str)
-                padded_rig_row = np.full(max_len + 1, '', dtype=object)
-                padded_rig_row[0] = 'Corresponding rigidities'
-                padded_rig_row[1:len(rig_row)+1] = rig_row
-                bb_list.append(padded_rig_row)
+                rig_arr = np.atleast_1d(bininfo['Rig'][j])
+                rig_row = np.array(rig_arr, dtype=str)
+                padded_rig = np.full(max_len + 1, '', dtype=object)
+                padded_rig[0] = 'Corresponding rigidities'
+                padded_rig[1:len(rig_row)+1] = rig_row
+                bb_list.append(padded_rig)
         
-        bb[b_name] = np.array(bb_list)
+        bb[b_name] = np.array(bb_list, dtype=object)
 
     print("BinningInfo.mat загружен и обработан.")
     return bininfo, bb
 
-# --- Динамические константы (загружаются при импорте) ---
+# --- Динамические константы ---
 print("Загрузка метаданных PAMELA (config.py)...")
+
+# Пытаемся загрузить метаданные
 BINNING_STR = get_unique_stdbinnings()
 GEO_STR, SELECT_STR, GS_ARRAY = get_selection_coexistence()
+
+# Если метаданные не загрузились (например, диск не подключен), ставим заглушки
+if not BINNING_STR:
+    BINNING_STR = ['P3L4E4'] 
+if not GEO_STR:
+    GEO_STR = ['RB3']
+if not SELECT_STR:
+    SELECT_STR = ['ItalianH']
 
 # Загружаем биннинги
 try:
     BIN_INFO, BB_INFO = load_binning_info()
 except Exception as e:
     print(f"Критическая ошибка при загрузке биннингов: {e}")
-    BIN_INFO, BB_INFO = None, None
+    BIN_INFO, BB_INFO = {}, {}
 
 print("Модуль config.py инициализирован.")

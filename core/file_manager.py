@@ -1,21 +1,22 @@
 """
-Менеджер файлов.
-Отвечает за поиск и формирование путей к данным.
+Менеджер файлов (External Drive Edition).
+Формирует пути с учетом GeoSelection (RB3) и структуры dirflux_newStructure.
 """
 import os
 from . import config
 
 def get_input_filenames(app_state, data_type='flux'):
     """
-    Возвращает список полных путей к файлам для выбранных дней.
-    data_type: 'flux' (RBflux) или 'aux' (MagParam).
+    Возвращает список путей к файлам для выбранных дней.
     """
     files = []
+    base = config.BASE_DATA_PATH
     
     # --- 1. AUX DATA (MagParam) ---
     if data_type == 'aux':
-        # Обычно это один файл на все времена
-        path = os.path.join(config.BASE_DATA_PATH, 'SolarHelioParams', 'MagParam2.mat')
+        # Путь: .../SolarHelioParams/MagParam2.mat
+        # Предполагаем, что эта папка лежит в корне dirflux_newStructure
+        path = os.path.join(base, 'SolarHelioParams', 'MagParam2.mat')
         if os.path.exists(path):
             return [path]
         return []
@@ -24,39 +25,38 @@ def get_input_filenames(app_state, data_type='flux'):
     if not app_state.pam_pers:
         return []
 
-    sel = app_state.selection       # ItalianH
-    ver = app_state.flux_version    # v09
-    binn = app_state.stdbinning     # P3L4E4
-    
-    # Базовые папки
-    base = config.BASE_DATA_PATH
+    sel = app_state.selection        # ItalianH
+    ver = app_state.flux_version     # v09
+    binn = app_state.stdbinning      # P3L4E4
+    geo = app_state.geo_selection    # RB3 (Важно! Добавили это)
     
     for day in app_state.pam_pers:
+        # Имя файла: RBflux_315_stdbinning_P3L4E4.mat
         fname = f"RBflux_{day}_stdbinning_{binn}.mat"
         
-        # ВАРИАНТ А: Стандартная "плоская" структура
-        # Base / ItalianH / Loc / Fluxdata / v09 / RBfullfluxes / File
-        path_a = os.path.join(base, sel, 'Loc', 'Fluxdata', ver, 'RBfullfluxes', fname)
+        # --- СТРУКТУРА ПУТЕЙ ---
+        # User path: /Volumes/T7 Touch/dirflux_newStructure/RB3/days/day_315/ItalianH/Loc/Fluxdata/v09/...
         
-        # ВАРИАНТ Б: Структура "по дням" (как у вас)
-        # Base / days / day_303 / ItalianH / Loc / Fluxdata / v09 / RBfullfluxes / File
-        # (Иногда RBfullfluxes может не быть внутри v09, проверяем варианты)
-        path_b = os.path.join(base, 'days', f"day_{day}", sel, 'Loc', 'Fluxdata', ver, 'RBfullfluxes', fname)
+        # Путь к папке версии
+        # base / RB3 / days / day_315 / ItalianH / Loc / Fluxdata / v09
+        ver_dir = os.path.join(base, geo, 'days', f"day_{day}", sel, 'Loc', 'Fluxdata', ver)
         
-        # ВАРИАНТ В: То же, но без папки RBfullfluxes
-        path_c = os.path.join(base, 'days', f"day_{day}", sel, 'Loc', 'Fluxdata', ver, fname)
+        # Внутри v09 файлы могут лежать в корне или в RBfullfluxes
+        path_with_folder = os.path.join(ver_dir, 'RBfullfluxes', fname)
+        path_direct = os.path.join(ver_dir, fname)
 
         # Проверка
-        if os.path.exists(path_a):
-            files.append(path_a)
-        elif os.path.exists(path_b):
-            files.append(path_b)
-        elif os.path.exists(path_c):
-            files.append(path_c)
+        if os.path.exists(path_with_folder):
+            files.append(path_with_folder)
+        elif os.path.exists(path_direct):
+            files.append(path_direct)
         else:
-            # Если не нашли, выводим отладку (первый раз)
-            if len(files) == 0: 
-                print(f"DEBUG: Не могу найти файл для дня {day}.")
-                print(f"Искал здесь:\n1) {path_a}\n2) {path_b}\n3) {path_c}")
+            # Отладка (выведется только 1 раз для первого файла)
+            if len(files) == 0:
+                print(f"DEBUG: Файл не найден: {fname}")
+                print(f"Проверял пути:\n1) {path_with_folder}\n2) {path_direct}")
+                # На всякий случай проверим, видит ли питон диск вообще
+                if not os.path.exists(base):
+                    print(f"КРИТИЧНО: Не найдена корневая папка: {base}")
     
     return files

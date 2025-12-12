@@ -34,7 +34,7 @@ class QtConnector(QObject):
     passages_changed = pyqtSignal(list)
     
     # Geomagnetic parameters
-l_changed = pyqtSignal(list)
+    l_changed = pyqtSignal(list)
     l_max_changed = pyqtSignal(list)      # <--- БЫЛО (float), ДОЛЖНО БЫТЬ (list)
     pitch_changed = pyqtSignal(list)
     pitch_max_changed = pyqtSignal(list)  # <--- Проверьте, что тут (list)

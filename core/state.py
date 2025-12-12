@@ -1,14 +1,14 @@
 """
-Модуль Состояния (Фаза 1) - ФИНАЛЬНЫЙ
-
-Хранит состояние приложения. Исправлены все атрибуты и сигналы.
+Модуль Состояния (Фаза 4 - FINAL TYPES)
+Хранит состояние приложения.
+ИСПРАВЛЕНО: l_max, pitch_max инициализируются как списки [], а не числа.
 """
 
 from blinker import signal
 from . import config
 
 class ApplicationState:
-    # --- Сигналы (ВСЕ) ---
+    # --- Сигналы ---
     gen_changed = signal('gen_changed')
     
     # Version / Selection
@@ -32,11 +32,10 @@ class ApplicationState:
     fullday_changed = signal('fullday_changed')
     passages_changed = signal('passages_changed')
     
-    # --- ВОТ ТЕ САМЫЕ СИГНАЛЫ, КОТОРЫХ НЕ ХВАТАЛО ---
+    # Time
     dt_changed = signal('dt_changed')
     t_min_changed = signal('t_min_changed')
     t_max_changed = signal('t_max_changed')
-    # ------------------------------------------------
 
     # Geomagnetic
     l_changed = signal('l_changed')
@@ -69,7 +68,7 @@ class ApplicationState:
         self._selection = 'ItalianH'
         self._geo_selection = 'RB3'
         
-        # Биннинги (по умолчанию P3L3E2, как мы выяснили)
+        # Биннинги
         self._stdbinning = 'P3L3E2' 
         self._pitchb = 3
         self._lb = 3
@@ -79,21 +78,20 @@ class ApplicationState:
         # Время
         self._period = ''
         self._tbin = 'day'
-        self._pam_pers = [200] # День по умолчанию
+        self._pam_pers = [200]
         self._fullday = True
         self._passages = []
         
-        # --- НОВЫЕ ПЕРЕМЕННЫЕ (Time) ---
         self._dt = 0.0
         self._t_min = ""
         self._t_max = ""
-        # -------------------------------
 
-        # Геомагнитные параметры
+        # --- ГЕОМАГНИТНЫЕ ПАРАМЕТРЫ (ИСПРАВЛЕНО) ---
         self._l = []
-        self._l_max = 1000.0
+        self._l_max = [] # <--- БЫЛО 1000.0, ТЕПЕРЬ СПИСОК
+        
         self._pitch = []
-        self._pitch_max = []
+        self._pitch_max = [] # <--- СПИСОК
         self._d_alpha = 0.0
         
         self._e = []
@@ -111,7 +109,7 @@ class ApplicationState:
 
         print("ApplicationState инициализирован.")
 
-    # --- Properties (Свойства) ---
+    # --- Properties ---
 
     @property
     def gen(self): return self._gen
@@ -195,14 +193,11 @@ class ApplicationState:
         
     @property
     def passages(self): return self._passages
-
     @passages.setter
     def passages(self, value):
-        if self._passages != value:
-            self._passages = value
-            self.passages_changed.send(self, value=value)
+        if self._passages != value: self._passages = value; self.passages_changed.send(self, value=value)
 
-    # --- НОВЫЕ СВОЙСТВА (Time) ---
+    # --- Time ---
     @property
     def dt(self): return self._dt
     @dt.setter
@@ -220,9 +215,8 @@ class ApplicationState:
     @t_max.setter
     def t_max(self, value):
         if self._t_max != value: self._t_max = value; self.t_max_changed.send(self, value=value)
-    # -----------------------------
 
-    # Геомагнитные
+    # --- Geomagnetic ---
     @property
     def l(self): return self._l
     @l.setter
@@ -233,6 +227,7 @@ class ApplicationState:
     def l_max(self): return self._l_max
     @l_max.setter
     def l_max(self, value):
+        # Присваиваем список напрямую
         if self._l_max != value: self._l_max = value; self.l_max_changed.send(self, value=value)
         
     @property

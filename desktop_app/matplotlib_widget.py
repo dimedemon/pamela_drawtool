@@ -1,6 +1,5 @@
 """
-Виджет Matplotlib (Фаза 4 - 2D SUPPORT)
-Поддерживает errorbar и pcolormesh (тепловые карты).
+Виджет Matplotlib (Фаза 6 - HISTOGRAM SUPPORT)
 """
 from PyQt5.QtWidgets import QWidget, QVBoxLayout
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -45,12 +44,10 @@ class MplCanvas(QWidget):
 
     def clear_all_axes(self):
         for ax in self.axes_list:
-            ax.clear() # clear() полнее чем cla()
-            # Удаляем старые colorbars, если они были
-            # (в matplotlib это сложно, проще очистить фигуру, но пока так)
+            ax.clear()
 
     def draw_plot(self, plot_data: dict):
-        """Рисует 1D или 2D график."""
+        """Рисует график в зависимости от plot_type."""
         target_ax_idx = plot_data.get("ax_index", 0)
         if target_ax_idx >= len(self.axes_list): target_ax_idx = 0
         ax = self.axes_list[target_ax_idx]
@@ -58,7 +55,7 @@ class MplCanvas(QWidget):
         plot_type = plot_data.get("plot_type", "errorbar")
         label = plot_data.get("label", "")
         
-        # --- 1D ERRORBAR ---
+        # --- 1. ERRORBAR (Lines) ---
         if plot_type == "errorbar":
             ax.errorbar(
                 plot_data.get("x", []),
@@ -71,45 +68,52 @@ class MplCanvas(QWidget):
             ax.grid(True)
             if plot_data.get("xscale") == "log": ax.set_xscale('log')
             if plot_data.get("yscale") == "log": ax.set_yscale('log')
-            
-            # Легенда
             if label: ax.legend()
 
-        # --- 2D PCOLOR (Heatmap) ---
+        # --- 2. PCOLOR (Maps) ---
         elif plot_type == "pcolor":
-            # Подготовка данных для pcolormesh
-            X = plot_data.get("x") # Границы бинов X
-            Y = plot_data.get("y") # Границы бинов Y
-            Z = plot_data.get("z") # Значения (2D массив)
+            X = plot_data.get("x")
+            Y = plot_data.get("y")
+            Z = plot_data.get("z")
             
-            # Логарифмическая шкала цвета (Z)
             norm = None
             if plot_data.get("zscale") == "log":
-                # Защита от 0 и отрицательных для LogNorm
-                vmin = np.min(Z[Z > 0]) if np.any(Z > 0) else 1e-5
-                vmax = np.max(Z)
+                valid_Z = Z[Z > 0]
+                vmin = np.min(valid_Z) if len(valid_Z) > 0 else 1e-5
+                vmax = np.max(Z) if len(Z) > 0 else 1.0
                 norm = LogNorm(vmin=vmin, vmax=vmax)
             else:
                 norm = Normalize(vmin=np.min(Z), vmax=np.max(Z))
 
-            # Рисуем карту
-            # shading='flat' требует, чтобы X и Y были на 1 больше Z по размеру (границы)
-            # или 'nearest'/'auto' для центров.
-            # В MATLAB pcolor использует границы.
             pcm = ax.pcolormesh(X, Y, Z, norm=norm, cmap='jet', shading='auto')
-            
-            # Colorbar
             cbar = self.fig.colorbar(pcm, ax=ax)
             cbar.set_label(plot_data.get("zlabel", ""))
             
-            ax.grid(False) # На картах сетка обычно мешает
-            
+            ax.grid(False)
             if plot_data.get("xscale") == "log": ax.set_xscale('log')
             if plot_data.get("yscale") == "log": ax.set_yscale('log')
+
+        # --- 3. HISTOGRAM (Distribution) - ВОТ ЭТО ДОБАВЛЯЕМ! ---
+        elif plot_type == "histogram":
+            data = plot_data.get("x", [])
+            bins = plot_data.get("bins", 50)
+            
+            # Рисуем гистограмму
+            # alpha - прозрачность (чтобы видеть наложения)
+            # density=False - по оси Y будет количество (Counts), а не вероятность
+            ax.hist(data, bins=bins, alpha=0.7, edgecolor='black', label=label)
+            
+            ax.legend(loc='best')
+            ax.grid(True, axis='y', alpha=0.5)
+            
+            # Если нужно лог-распределение по X (часто нужно для потоков)
+            # if plot_data.get("xscale") == "log": ax.set_xscale('log')
 
         # --- Оформление ---
         ax.set_xlabel(plot_data.get("xlabel", ""))
         ax.set_ylabel(plot_data.get("ylabel", ""))
-        ax.set_title(label)
+        
+        if plot_type == "pcolor" and label:
+            ax.set_title(label)
         
         self.canvas.draw()

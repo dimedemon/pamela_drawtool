@@ -1,8 +1,6 @@
 """
-Модуль конфигурации (FINAL MERGED VERSION)
-1. Lbin/Pitchbin загружаются через словарь (исправлено).
-2. GS_ARRAY и метаданные восстановлены (исправлено).
-3. Вернут helper _load_mat_file для совместимости с Binnings.py.
+Модуль конфигурации (COMPLETE RESTORED VERSION)
+Содержит все необходимые переменные: BIN_INFO, GS_ARRAY, BINNING_STR.
 """
 import os
 import numpy as np
@@ -30,13 +28,13 @@ PLOT_KINDS = ['Energy spectra','Rigidity spectra','pitch-angular distribution',
               'Radial distribution','Temporal variations','Variations along orbit',
               'Fluxes Histogram','L-pitch map','E-pitch map','E-L map','Auxiliary parameters']
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ (Нужна для Binnings.py) ---
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ---
 def _load_mat_file(path):
     if not os.path.exists(path): return None
     try: return loadmat(path, squeeze_me=True, struct_as_record=False)
     except: return None
 
-# --- ЗАГРУЗКА БИННИНГОВ (Код, который сработал) ---
+# --- 1. ЗАГРУЗКА БИННИНГОВ (BIN_INFO) ---
 def load_binning_info_direct():
     bininfo = {
         'Lbin': [], 'Lbindesc': [],
@@ -93,33 +91,50 @@ def load_binning_info_direct():
 
     return bininfo
 
-# --- ЗАГРУЗКА МЕТАДАННЫХ (Восстановлено для GS_ARRAY) ---
+# --- 2. ЗАГРУЗКА СПИСКА БИННИНГОВ (BINNING_STR) ---
+def get_unique_stdbinnings():
+    """Возвращает список доступных биннингов (например, ['P3L4E4'])."""
+    default = ['P3L4E4']
+    
+    mat = _load_mat_file(METADATA_FILE)
+    if mat is None:
+        return default
+        
+    if hasattr(mat, 'stdbinnings'):
+        try:
+            vals = mat.stdbinnings
+            # Если там всего одна строка
+            if isinstance(vals, (str, np.str_)): 
+                return [str(vals)]
+            # Если массив строк
+            valid = vals[vals != '']
+            return sorted(list(np.unique(valid)))
+        except:
+            return default
+            
+    return default
+
+# --- 3. ЗАГРУЗКА МЕТАДАННЫХ (GS_ARRAY, GEO_STR) ---
 def load_metadata_safe():
-    # Дефолтные значения
     geo_str = ['RB3']
     sel_str = ['ItalianH']
     gs = np.ones((1,1), dtype=bool)
 
-    if not os.path.exists(METADATA_FILE):
+    mat = _load_mat_file(METADATA_FILE)
+    if mat is None:
         return geo_str, sel_str, gs
 
     try:
-        mat = loadmat(METADATA_FILE, squeeze_me=True, struct_as_record=False)
-        
-        # Проверяем наличие полей
         if not hasattr(mat, 'GeoSelections') or not hasattr(mat, 'Selections'):
             return geo_str, sel_str, gs
 
-        # Фильтруем 'None' значения
         valid_mask = (mat.GeoSelections != 'None') & (mat.Selections != 'None')
-        
         raw_geo = mat.GeoSelections[valid_mask]
         raw_sel = mat.Selections[valid_mask]
         
         geo_str = sorted(list(np.unique(raw_geo)))
         sel_str = sorted(list(np.unique(raw_sel)))
         
-        # Строим матрицу связей
         geo_map = {k:v for v,k in enumerate(geo_str)}
         sel_map = {k:v for v,k in enumerate(sel_str)}
         
@@ -135,10 +150,16 @@ def load_metadata_safe():
         
     return geo_str, sel_str, gs
 
-# === ИНИЦИАЛИЗАЦИЯ (Выполняется при импорте) ===
+# === ИНИЦИАЛИЗАЦИЯ (ВЫПОЛНЯЕТСЯ ПРИ ИМПОРТЕ) ===
+# 1. Основные данные
 BIN_INFO = load_binning_info_direct()
+
+# 2. Список доступных биннингов (ВОССТАНОВЛЕНО)
+BINNING_STR = get_unique_stdbinnings()
+
+# 3. Метаданные селекции
 GEO_STR, SELECT_STR, GS_ARRAY = load_metadata_safe()
 
-# Если матрица пустая или 0-мерная, делаем заглушку
+# Заглушка, если метаданные не загрузились
 if GS_ARRAY.ndim != 2: 
     GS_ARRAY = np.ones((len(GEO_STR), len(SELECT_STR)), dtype=bool)

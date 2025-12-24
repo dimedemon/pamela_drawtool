@@ -11,7 +11,7 @@ from . import kinematics
 # === ПУТИ ===
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-
+BASE_DATA_PATH = DATA_DIR
 BINNING_INFO_FILE = os.path.join(DATA_DIR, 'BinningInfo.mat')
 METADATA_FILE = os.path.join(DATA_DIR, 'file_metadata.mat')
 

@@ -8,7 +8,8 @@ from . import config
 def get_input_filenames(app_state, data_type='flux'):
     files = []
     base = config.BASE_DATA_PATH # .../pamela_drawtool/data
-    
+    print(f"\n[DEBUG FileManager]")
+    print(f"Базовая папка: {base}")
     # --- Aux Data ---
     if data_type == 'aux':
         # Ищем MagParam2.mat где угодно внутри data

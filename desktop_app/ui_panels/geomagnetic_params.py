@@ -95,7 +95,8 @@ def create_geomag_params_widget(app_state: ApplicationState, connector: QtConnec
         elif plot_kind_val == 9: l_en = True
         elif plot_kind_val == 10: pitch_en = True
         elif plot_kind_val == 11: t_en = True
-
+        elif plot_kind_val == 12: l_en = True; pitch_en = True; er_en = True
+          
         for w in [edit_l_min, button_show_l, edit_l_max, edit_delta_l]: w.setEnabled(l_en)
         for w in [edit_pitch_min, button_show_pitch, edit_pitch_max, edit_delta_alpha]: w.setEnabled(pitch_en)
         for w in [edit_e_min, combo_e_units, button_show_e, edit_e_max, edit_delta_e, edit_r_min, combo_r_units, edit_r_max]: w.setEnabled(er_en)

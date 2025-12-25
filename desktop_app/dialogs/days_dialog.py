@@ -1,6 +1,7 @@
 """
-Порт ShowDays (CLEAN FOLDER EDITION).
-Использует config.find_in_data для поиска файлов внутри PAMELA_DATA.
+Порт ShowDays (FINAL FIXED).
+Включает в себя методы on_set_start/end, которые были забыты ранее.
+Работает с папкой PAMELA_DATA через config.
 """
 import os
 import numpy as np
@@ -47,6 +48,7 @@ class DaysDialog(QDialog):
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
         
+        # Left Panel
         left_panel = QWidget()
         left_panel.setFixedWidth(300)
         left_layout = QVBoxLayout()
@@ -68,18 +70,23 @@ class DaysDialog(QDialog):
         self.btn_set_end = QPushButton("Set as END")
         self.btn_set_start.setEnabled(False)
         self.btn_set_end.setEnabled(False)
+        
+        # ВОТ ЗДЕСЬ БЫЛА ОШИБКА: Подключение было, а методов не было
         self.btn_set_start.clicked.connect(self.on_set_start)
         self.btn_set_end.clicked.connect(self.on_set_end)
+        
         left_layout.addWidget(self.btn_set_start)
         left_layout.addWidget(self.btn_set_end)
         
         main_layout.addWidget(left_panel)
         
+        # Table
         self.table = QTableWidget()
         self.setup_table()
         self.table.cellClicked.connect(self.on_cell_clicked)
         main_layout.addWidget(self.table)
         
+        # Load Data
         self.load_data()         
         self.load_solar_data()   
         self.load_mag_data()     
@@ -121,7 +128,7 @@ class DaysDialog(QDialog):
         
         if not path:
             print("[DAYS] ⚠️ Tbinning_day.mat не найден в папке PAMELA_DATA.")
-            # Фолбэк на зеленый цвет, если файл не найден
+            # Фолбэк на зеленый цвет
             if hasattr(config, 'FILE_INFO') and 'RunDays' in config.FILE_INFO:
                  for d in config.FILE_INFO['RunDays']:
                      self.day_quality_map[int(d)] = 1
@@ -231,3 +238,16 @@ class DaysDialog(QDialog):
             self.info_box.setText(html)
             self.btn_set_start.setEnabled(True)
             self.btn_set_end.setEnabled(True)
+
+    # === ВОТ ЭТИ ФУНКЦИИ БЫЛИ ЗАБЫТЫ В ПРОШЛЫЙ РАЗ ===
+    def on_set_start(self):
+        if self.selected_day:
+            self.app_state.pam_pers = [self.selected_day]
+            QMessageBox.information(self, "Info", f"Start Day: {self.selected_day}")
+    
+    def on_set_end(self):
+        if self.selected_day and self.app_state.pam_pers:
+            start = self.app_state.pam_pers[0]
+            if self.selected_day >= start:
+                self.app_state.pam_pers = list(range(start, self.selected_day + 1))
+                QMessageBox.information(self, "Info", f"Range: {start} - {self.selected_day}")

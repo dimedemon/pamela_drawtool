@@ -1,7 +1,7 @@
 """
-Порт ShowDays (FINAL FIXED).
-Включает в себя методы on_set_start/end, которые были забыты ранее.
-Работает с папкой PAMELA_DATA через config.
+Порт ShowDays (LOCAL + CRASH FIX).
+Использует файлы из локальной папки проекта (config.UI_DATA_PATH).
+Исправлена ошибка доступа к атрибутам словаря.
 """
 import os
 import numpy as np
@@ -30,6 +30,12 @@ def get_kp_color_hex(kp):
     if kp < 7: return '#ff6600'
     return '#ff0000'
 
+# Хелпер для безопасного доступа (dict или object)
+def _get_field(obj, key):
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
 class DaysDialog(QDialog):
     def __init__(self, app_state: ApplicationState, parent=None):
         super().__init__(parent)
@@ -42,7 +48,7 @@ class DaysDialog(QDialog):
         self.mag_data_map = {} 
         self.row_map_cache = {} 
         
-        self.setWindowTitle("Mission Timeline (Clean Folder)")
+        self.setWindowTitle("Mission Timeline (Local Data)")
         self.resize(1100, 650)
         
         main_layout = QHBoxLayout()
@@ -70,11 +76,8 @@ class DaysDialog(QDialog):
         self.btn_set_end = QPushButton("Set as END")
         self.btn_set_start.setEnabled(False)
         self.btn_set_end.setEnabled(False)
-        
-        # ВОТ ЗДЕСЬ БЫЛА ОШИБКА: Подключение было, а методов не было
         self.btn_set_start.clicked.connect(self.on_set_start)
         self.btn_set_end.clicked.connect(self.on_set_end)
-        
         left_layout.addWidget(self.btn_set_start)
         left_layout.addWidget(self.btn_set_end)
         
@@ -123,53 +126,63 @@ class DaysDialog(QDialog):
             layout.addWidget(lbl)
 
     def load_data(self):
-        # Используем find_in_data из конфига
-        path = config.find_in_data('Tbinning_day.mat', subfolder='UserBinnings')
+        """Загрузка Tbinning_day из локальной папки data/UserBinnings"""
+        base = config.UI_DATA_PATH
+        path = os.path.join(base, 'UserBinnings', 'Tbinning_day.mat')
         
-        if not path:
-            print("[DAYS] ⚠️ Tbinning_day.mat не найден в папке PAMELA_DATA.")
-            # Фолбэк на зеленый цвет
-            if hasattr(config, 'FILE_INFO') and 'RunDays' in config.FILE_INFO:
-                 for d in config.FILE_INFO['RunDays']:
-                     self.day_quality_map[int(d)] = 1
+        if not os.path.exists(path):
+            print(f"[DAYS] ⚠️ Tbinning не найден: {path}")
             return
 
         mat = config._load_mat_file(path)
         if not mat: return
         try:
-            t_bins = np.array(mat.Tbins).flatten()
-            day_qual = np.array(mat.DayQuality).flatten()
+            # Используем безопасный геттер
+            t_bins = np.array(_get_field(mat, 'Tbins')).flatten()
+            day_qual = np.array(_get_field(mat, 'DayQuality')).flatten()
             for i, pam_day in enumerate(t_bins):
                 self.day_quality_map[int(pam_day)] = int(day_qual[i])
-        except: pass
+        except Exception as e:
+            print(f"Error loading Tbinning: {e}")
 
     def load_solar_data(self):
+        base = config.UI_DATA_PATH
         try:
-            path_b = config.find_in_data('Bartels.mat', subfolder='SolarHelioParams')
-            if path_b:
-                mat_b = config._load_mat_file(path_b)
-                if mat_b:
-                    self.bartels_data = {'days': np.array(mat_b.pamdays).flatten(), 'bn': np.array(mat_b.BN).flatten()}
+            path_b = os.path.join(base, 'SolarHelioParams', 'Bartels.mat')
+            mat_b = config._load_mat_file(path_b)
+            if mat_b:
+                self.bartels_data = {
+                    'days': np.array(_get_field(mat_b, 'pamdays')).flatten(), 
+                    'bn': np.array(_get_field(mat_b, 'BN')).flatten()
+                }
             
-            path_c = config.find_in_data('Carrington.mat', subfolder='SolarHelioParams')
-            if path_c:
-                mat_c = config._load_mat_file(path_c)
-                if mat_c:
-                    self.carrington_data = {'days': np.array(mat_c.pamdays).flatten(), 'cn': np.array(mat_c.CN).flatten()}
+            path_c = os.path.join(base, 'SolarHelioParams', 'Carrington.mat')
+            mat_c = config._load_mat_file(path_c)
+            if mat_c:
+                self.carrington_data = {
+                    'days': np.array(_get_field(mat_c, 'pamdays')).flatten(), 
+                    'cn': np.array(_get_field(mat_c, 'CN')).flatten()
+                }
         except: pass
 
     def load_mag_data(self):
-        path = config.MAGPARAM_FILE
-        if not path: return
+        """Загрузка MagParam2 из локальной папки data/SolarHelioParams"""
+        base = config.UI_DATA_PATH
+        path = os.path.join(base, 'SolarHelioParams', 'MagParam2.mat')
+        
+        if not os.path.exists(path):
+             print(f"[DAYS] ⚠️ MagParam2 не найден: {path}")
+             return
 
         mat = config._load_mat_file(path)
         if not mat: return
 
         try:
-            unixtime = np.array(mat.unixtime).flatten()
-            kp = np.array(mat.Kp).flatten()
-            dst = np.array(mat.Dst).flatten()
-            f10 = np.array(mat.f10p7).flatten()
+            # ИСПОЛЬЗУЕМ БЕЗОПАСНЫЙ ДОСТУП, ЧТОБЫ НЕ БЫЛО ATTRIBUTE ERROR
+            unixtime = np.array(_get_field(mat, 'unixtime')).flatten()
+            kp = np.array(_get_field(mat, 'Kp')).flatten()
+            dst = np.array(_get_field(mat, 'Dst')).flatten()
+            f10 = np.array(_get_field(mat, 'f10p7')).flatten()
             
             base_unix = datetime(2005, 12, 31).timestamp()
             pam_days_all = np.floor((unixtime - base_unix) / 86400.0).astype(int)
@@ -239,7 +252,6 @@ class DaysDialog(QDialog):
             self.btn_set_start.setEnabled(True)
             self.btn_set_end.setEnabled(True)
 
-    # === ВОТ ЭТИ ФУНКЦИИ БЫЛИ ЗАБЫТЫ В ПРОШЛЫЙ РАЗ ===
     def on_set_start(self):
         if self.selected_day:
             self.app_state.pam_pers = [self.selected_day]

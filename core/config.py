@@ -9,10 +9,18 @@ from datetime import datetime
 from . import kinematics
 
 # === ПУТИ ===
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-BASE_DATA_PATH = DATA_DIR
+# Указываем путь к вашему внешнему диску
+DATA_DIR = "/Volumes/T7 Touch"
+
+# !!! ВАЖНО: Алиас для совместимости
+BASE_DATA_PATH = DATA_DIR 
+
+# BinningInfo скорее всего лежит внутри dirflux_newStructure или в корне. 
+# Если он в корне T7 Touch, оставляем так:
 BINNING_INFO_FILE = os.path.join(DATA_DIR, 'BinningInfo.mat')
+# Если он внутри папки структуры, раскомментируйте эту строку:
+# BINNING_INFO_FILE = os.path.join(DATA_DIR, 'dirflux_newStructure', 'BinningInfo.mat')
+
 METADATA_FILE = os.path.join(DATA_DIR, 'file_metadata.mat')
 
 print(f"[CONFIG] Путь к данным: {DATA_DIR}")

@@ -1,8 +1,8 @@
 """
-Модуль конфигурации (DAYS & COLORS RESTORED).
-1. Пути настроены на T7 Touch.
-2. Восстановлена загрузка информации о ДНЯХ (Completeness, RunDays) для раскраски окна.
-3. Восстановлены все текстовые константы.
+Модуль конфигурации (FINAL FIXED).
+1. Исправлена ошибка 'dict object has no attribute __dict__'.
+2. Метаданные загружаются корректно для раскраски дней.
+3. Пути настроены на внешний диск.
 """
 import os
 import numpy as np
@@ -18,8 +18,10 @@ print(f"[CONFIG] Корень данных: {DATA_DIR}")
 
 # Умный поиск файлов
 def find_file(filename):
+    # Сначала ищем в структуре
     path_struct = os.path.join(DATA_DIR, 'dirflux_newStructure', filename)
     if os.path.exists(path_struct): return path_struct
+    # Потом в корне
     path_root = os.path.join(DATA_DIR, filename)
     return path_root
 
@@ -64,6 +66,12 @@ def _load_mat_file(path):
     try: return loadmat(path, squeeze_me=True, struct_as_record=False)
     except: return None
 
+# Helper для извлечения данных из словаря или объекта
+def get_val(obj, key):
+    if isinstance(obj, dict):
+        return obj.get(key, None)
+    return getattr(obj, key, None)
+
 # Загрузка Биннингов
 def load_binning_info_direct():
     bininfo = { 'Lbin': [], 'pitchbin': [], 'Ebin': [], 'Rig': [] }
@@ -71,12 +79,16 @@ def load_binning_info_direct():
     try:
         mat = loadmat(BINNING_INFO_FILE, squeeze_me=True, struct_as_record=False)
         for k in ['Lbin', 'Lbindesc', 'pitchbin', 'pitchbdesc', 'Ebin', 'Ebindesc']:
-            keys = [k, k.lower(), k.capitalize(), k + 's'] 
-            for key in keys:
-                if key in mat:
-                    bininfo[k] = mat[key]
-                    break
+            # Пробуем достать ключ любым способом
+            val = get_val(mat, k)
+            if val is None: # Пробуем разные регистры
+                val = get_val(mat, k.lower()) or get_val(mat, k.capitalize()) or get_val(mat, k + 's')
+            
+            if val is not None:
+                bininfo[k] = val
     except: pass
+    
+    # Rigidity
     try:
         ebins = bininfo.get('Ebin', [])
         if isinstance(ebins, np.ndarray) and ebins.size > 0:
@@ -90,26 +102,24 @@ def get_unique_stdbinnings():
     default = ['P3L4E4']
     mat = _load_mat_file(METADATA_FILE)
     if mat is None: return default
-    if hasattr(mat, 'stdbinnings'):
+    
+    vals = get_val(mat, 'stdbinnings')
+    if vals is not None:
         try:
-            vals = mat.stdbinnings
             if isinstance(vals, (str, np.str_)): return [str(vals)]
             valid = vals[vals != '']
             return sorted(list(np.unique(valid)))
         except: return default
     return default
 
-# --- ГЛАВНАЯ ФУНКЦИЯ ДЛЯ МЕТАДАННЫХ (ИСПРАВЛЕНА) ---
+# --- ЗАГРУЗКА МЕТАДАННЫХ (ИСПРАВЛЕННАЯ) ---
 def load_metadata_full():
     """
-    Загружает не только GeoSelections, но и информацию о Днях (Completeness),
-    чтобы окно дней могло их раскрасить.
+    Загружает GeoSelections и информацию о днях.
+    Работает корректно и со словарями, и с объектами.
     """
-    # 1. Значения по умолчанию
     geo_str = ['RB3']; sel_str = ['ItalianH']
     gs = np.ones((1,1), dtype=bool)
-    
-    # Словарь для хранения информации о днях (Completeness, Dates и т.д.)
     file_info = {}
 
     mat = _load_mat_file(METADATA_FILE)
@@ -117,11 +127,15 @@ def load_metadata_full():
         return geo_str, sel_str, gs, file_info
 
     try:
-        # А. Загрузка GeoSelections (для меню)
-        if hasattr(mat, 'GeoSelections') and hasattr(mat, 'Selections'):
-            valid = (mat.GeoSelections != 'None') & (mat.Selections != 'None')
-            raw_geo = mat.GeoSelections[valid]
-            raw_sel = mat.Selections[valid]
+        # А. Загрузка GeoSelections
+        raw_geo = get_val(mat, 'GeoSelections')
+        raw_sel = get_val(mat, 'Selections')
+
+        if raw_geo is not None and raw_sel is not None:
+            valid = (raw_geo != 'None') & (raw_sel != 'None')
+            raw_geo = raw_geo[valid]
+            raw_sel = raw_sel[valid]
+            
             geo_str = sorted(list(np.unique(raw_geo)))
             sel_str = sorted(list(np.unique(raw_sel)))
             
@@ -133,15 +147,17 @@ def load_metadata_full():
             if gs.ndim == 1: gs = gs.reshape(-1, 1)
 
         # Б. Загрузка информации о днях (ДЛЯ ОКНА ДНЕЙ!)
-        # Проверяем наличие ключевых полей и сохраняем их
         keys_to_save = ['RunDays', 'Days', 'Date', 'Completeness', 'Duration', 'nEvents']
         for k in keys_to_save:
-            if hasattr(mat, k):
-                file_info[k] = getattr(mat, k)
-            elif k in mat.__dict__: # Если это словарь
-                file_info[k] = mat.__dict__[k]
-
-        print(f"[CONFIG] Загружена информация о днях. Ключи: {list(file_info.keys())}")
+            val = get_val(mat, k)
+            if val is not None:
+                file_info[k] = val
+        
+        # Диагностика
+        if 'Completeness' in file_info:
+            print(f"[CONFIG] ✅ Данные о днях загружены. Completeness size: {len(file_info['Completeness'])}")
+        else:
+            print(f"[CONFIG] ⚠️ Данные о днях (Completeness) не найдены в файле.")
 
     except Exception as e:
         print(f"[CONFIG] Ошибка загрузки метаданных: {e}")

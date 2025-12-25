@@ -1,6 +1,6 @@
 """
-Модуль Обработки (Фаза 9 - FINAL DISTRIBUTION)
-Реализует PlotKind 12: Гистограммы распределения потоков по виткам (из RBflux).
+Модуль Обработки (Фаза 9 - FINAL DISTRIBUTION FIXED)
+Реализует PlotKind 12: Гистограммы распределения потоков по дням.
 """
 import os
 import numpy as np
@@ -201,14 +201,14 @@ def _get_auxiliary_data(app_state, ax_index):
 
 def _get_flux_distribution(app_state, ax_index):
     """
-    Строит гистограмму распределения потоков по виткам.
-    Использует стандартные файлы RBflux, извлекая данные из переменной J (массив витков).
+    Строит гистограмму распределения потоков по дням (из RBflux).
+    Собирает значения Jday[l, e, p] из каждого файла.
     """
-    # 1. Используем стандартные файлы RBflux
+    print("[PROCESSING] Сбор статистики Fluxes Histogram...")
     files = file_manager.get_input_filenames(app_state, 'flux')
     if not files: return []
 
-    # 2. Индексы бинов
+    # 1. Индексы бинов
     L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
     P_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
     if app_state.ror_e == 1: E_edges = config.BIN_INFO['Ebin'][app_state.eb - 1]; E_vals = app_state.e; val_name="E"
@@ -218,83 +218,91 @@ def _get_flux_distribution(app_state, ax_index):
     P_indices = np.unique(_find_bin_indices(P_edges, app_state.pitch))
     E_indices = np.unique(_find_bin_indices(E_edges, E_vals))
     
-    # 3. Сбор статистики (key -> list of flux values)
+    # Сбор данных: (L, P, E) -> список значений
     flux_collections = {} 
-    
+    stat_errors_collections = {}
+
     for fpath in files:
         mat = _load_mat_file(fpath)
         if mat is None: continue
         
         try:
-            # В RBflux переменная J - это массив витков.
-            # J[i] содержит матрицу потоков (3, 6, 16) для i-го витка.
-            if not hasattr(mat, 'J'): continue
+            # Пытаемся найти матрицу потоков. Обычно это Flux или Jday.
+            data_matrix = None
+            error_matrix = None
+
+            if hasattr(mat, 'Flux'):
+                data_matrix = mat.Flux
+                if hasattr(mat, 'Errors'): error_matrix = mat.Errors
+            elif hasattr(mat, 'Jday'):
+                data_matrix = mat.Jday
+                if hasattr(mat, 'dJday'): error_matrix = mat.dJday
             
-            J_passes = mat.J # Array of numpy arrays
-            
-            # Если J - это массив numpy, содержащий другие массивы (object array или просто многомерный)
-            # В Python это обычно массив объектов
-            
-            for i_pass in range(len(J_passes)):
-                pass_flux_matrix = J_passes[i_pass] 
-                
-                # Проверка: иногда бывают пустые витки или скаляры
-                if np.isscalar(pass_flux_matrix) or pass_flux_matrix.size == 0: continue
-                
-                # Убедимся, что размерность совпадает с ожидаемой (L, E, P)
-                # Например (3, 6, 16)
-                if pass_flux_matrix.ndim != 3: continue
-                
-                for l_idx in L_indices:
-                    for e_idx in E_indices:
-                        for p_idx in P_indices:
-                            if l_idx >= pass_flux_matrix.shape[0] or \
-                               e_idx >= pass_flux_matrix.shape[1] or \
-                               p_idx >= pass_flux_matrix.shape[2]: continue
+            if data_matrix is None: continue
+
+            # Судя по generic_1d_plot, порядок индексов: [L, E, P]
+            # Проверяем размерность
+            if data_matrix.ndim != 3: continue
+
+            for l_idx in L_indices:
+                for e_idx in E_indices:
+                    for p_idx in P_indices:
+                        # Проверка границ
+                        if l_idx < data_matrix.shape[0] and e_idx < data_matrix.shape[1] and p_idx < data_matrix.shape[2]:
                             
-                            val = pass_flux_matrix[l_idx, e_idx, p_idx]
+                            val = data_matrix[l_idx, e_idx, p_idx]
                             
                             # Фильтруем нули и NaN
                             if not np.isnan(val) and val > 0:
                                 key = (l_idx, p_idx, e_idx)
-                                if key not in flux_collections: flux_collections[key] = []
+                                if key not in flux_collections: 
+                                    flux_collections[key] = []
+                                    stat_errors_collections[key] = []
+                                
                                 flux_collections[key].append(val)
-                            
+                                
+                                if error_matrix is not None:
+                                    stat_errors_collections[key].append(error_matrix[l_idx, e_idx, p_idx])
+                                    
         except Exception as e:
-            # print(f"Error extracting passages from {os.path.basename(fpath)}: {e}")
             pass
 
-    # 4. Формируем гистограммы
+    # Формируем данные для плоттера
     plot_data_list = []
     
     for key, fluxes in flux_collections.items():
         if len(fluxes) < 2: continue
         
         fluxes = np.array(fluxes)
+        errors = np.array(stat_errors_collections.get(key, []))
+        
         l_idx, p_idx, e_idx = key
         
         mean_val = np.mean(fluxes)
-        std_val = np.std(fluxes)
+        std_obs = np.std(fluxes)       # Реальный разброс
+        mean_err = np.mean(errors) if len(errors) > 0 else 0 # Статистический разброс
         
         l_lbl = f"[{L_edges[l_idx]:.2f}-{L_edges[l_idx+1]:.2f}]"
         p_lbl = f"[{P_edges[p_idx]:.0f}-{P_edges[p_idx+1]:.0f}]"
         e_lbl = f"[{E_edges[e_idx]:.2f}-{E_edges[e_idx+1]:.2f}]"
         
-        label = (f"L={l_lbl}, P={p_lbl}, {val_name}={e_lbl}\n"
-                 f"N={len(fluxes)}, Mean={mean_val:.2e}, Std={std_val:.2e}")
+        # Передаем статистику в stats, чтобы plotter мог нарисовать линии
+        stats = {
+            'mean': mean_val,
+            'std_obs': std_obs,
+            'mean_err': mean_err,
+            'count': len(fluxes)
+        }
         
         plot_data_list.append({
             "ax_index": ax_index,
-            "plot_type": "histogram",
-            "x": fluxes,
-            "label": label,
-            "xlabel": "Flux (J)",
-            "ylabel": "Counts (Passages)",
-            "xscale": "linear", 
-            "yscale": "linear",
-            "bins": 50 
+            "type": "histogram_flux", # Специальный тип для Plotter
+            "fluxes": fluxes,
+            "stats": stats,
+            "title": f"Flux Dist: L={l_lbl}, P={p_lbl}, {val_name}={e_lbl}"
         })
         
+    print(f"[PROCESSING] Готово. Сформировано {len(plot_data_list)} гистограмм.")
     return plot_data_list
 
 # --- MAIN DISPATCHER ---
@@ -308,5 +316,5 @@ def get_plot_data(app_state: state.ApplicationState, ax_index: int = 0):
     elif pk == 9: return _generic_2d_map(app_state, ax_index, 'e_pitch')
     elif pk == 10: return _generic_2d_map(app_state, ax_index, 'e_l')
     elif pk == 11: return _get_auxiliary_data(app_state, ax_index)
-    elif pk == 12: return _get_flux_distribution(app_state, ax_index) # <--- Fixed for RBflux
+    elif pk == 12: return _get_flux_distribution(app_state, ax_index)
     return []

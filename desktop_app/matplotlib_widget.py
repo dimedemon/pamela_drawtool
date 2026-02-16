@@ -82,13 +82,13 @@ class MplCanvas(QWidget):
             ax.set_xscale('log')
             ax.xaxis.set_major_locator(LogLocator(base=10.0, numticks=10))
             ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10) * 0.1, numticks=10))
-            ax.xaxis.set_major_formatter(LogFormatterExponent())
+            ax.xaxis.set_major_formatter(LogFormatterMathtext())
         
         if yscale == 'log':
             ax.set_yscale('log')
             ax.yaxis.set_major_locator(LogLocator(base=10.0, numticks=10))
             ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=np.arange(2, 10) * 0.1, numticks=10))
-            ax.yaxis.set_major_formatter(LogFormatterExponent())
+            ax.yaxis.set_major_formatter(LogFormatterMathtext())
 
     def draw_plot(self, plot_data: dict):
         """Рисует график с профессиональным оформлением."""

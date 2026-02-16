@@ -1,7 +1,7 @@
 """
-Модуль конфигурации (MODERNIZED SCIENTIFIC)
-Автоматически вычисляет центры бинов и ошибки ширины,
-чтобы соответствовать логике MATLAB (DrawSpectra.m).
+Модуль конфигурации (SCIENTIFIC EXACT)
+Загружает BinningInfo и подготавливает точные центры и ширины бинов.
+Экспортирует размеры биннингов для корректного маппинга осей.
 """
 import os
 import numpy as np
@@ -14,7 +14,6 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 UI_DATA_PATH = os.path.join(PROJECT_ROOT, 'data')
 
-# Внешний диск
 ext_root = "/Volumes/T7 Touch"
 ext_clean = os.path.join(ext_root, "PAMELA_DATA")
 if os.path.exists(ext_clean):
@@ -32,7 +31,8 @@ METADATA_FILE = os.path.join(UI_DATA_PATH, 'file_metadata.mat')
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 def _load_mat_file(path):
     if not path or not os.path.exists(path): return None
-    try: return loadmat(path, squeeze_me=True, struct_as_record=False)
+    try: 
+        return loadmat(path, squeeze_me=True, struct_as_record=False)
     except: return None
 
 def get_val(obj, key):
@@ -42,78 +42,70 @@ def get_val(obj, key):
 def calculate_bin_params(edges_array, mode='geometric'):
     """
     Вычисляет центры (centers) и ширину (d) бинов из границ.
+    Возвращает: centers, widths, count
     """
-    if edges_array is None: return [], []
+    if edges_array is None: return [], [], 0
     
-    # Если это массив массивов (cell array)
+    # Массив массивов (Cell Array)
     if isinstance(edges_array, np.ndarray) and edges_array.dtype == 'O':
         centers = []
         widths = []
+        counts = []
         for edges in edges_array:
             if isinstance(edges, (np.ndarray, list)) and len(edges) > 1:
-                w = edges[1:] - edges[:-1] # Ширина
-                
-                # Центр
+                w = edges[1:] - edges[:-1]
                 if mode == 'geometric':
-                    # Защита от отрицательных значений
-                    valid_edges = edges.copy()
-                    valid_edges[valid_edges <= 0] = 1e-9 
-                    c = np.sqrt(valid_edges[:-1] * valid_edges[1:])
-                else: 
+                    valid = edges.copy(); valid[valid<=0] = 1e-9
+                    c = np.sqrt(valid[:-1] * valid[1:])
+                else:
                     c = (edges[:-1] + edges[1:]) / 2.0
-                
                 centers.append(c)
                 widths.append(w)
+                counts.append(len(c))
             else:
-                centers.append([])
-                widths.append([])
-        return np.array(centers, dtype='O'), np.array(widths, dtype='O')
+                centers.append([]); widths.append([]); counts.append(0)
+        return np.array(centers, dtype='O'), np.array(widths, dtype='O'), np.array(counts, dtype='int')
         
-    # Если это одиночный массив
+    # Одиночный массив
     elif isinstance(edges_array, (np.ndarray, list)) and len(edges_array) > 1:
         w = edges_array[1:] - edges_array[:-1]
         if mode == 'geometric':
-            valid_edges = edges_array.copy()
-            valid_edges[valid_edges <= 0] = 1e-9
-            c = np.sqrt(valid_edges[:-1] * valid_edges[1:])
+            valid = edges_array.copy(); valid[valid<=0] = 1e-9
+            c = np.sqrt(valid[:-1] * valid[1:])
         else:
             c = (edges_array[:-1] + edges_array[1:]) / 2.0
-        return c, w
+        return c, w, len(c)
         
-    return [], []
+    return [], [], 0
 
 def load_binning_info_direct():
-    """Загружает BinningInfo и вычисляет недостающую геометрию."""
+    """Загружает BinningInfo и вычисляет геометрию."""
     bininfo = { 
         'Lbin': [], 'pitchbin': [], 'Ebin': [], 'Rig': [],
         'Ecenters': [], 'Rigcenters': [], 'Lcenters': [], 'pitchcenters': [],
-        'dE': [], 'dR': [], 'dL': [], 'dPitch': []
+        'dE': [], 'dR': [], 'dL': [], 'dPitch': [],
+        'nE': [], 'nR': [], 'nL': [], 'nPitch': [] # Количество бинов для проверки
     }
     
     if not os.path.exists(BINNING_INFO_FILE): return bininfo
 
     try:
         mat = loadmat(BINNING_INFO_FILE, squeeze_me=True, struct_as_record=False)
-        
-        # 1. Загружаем исходные границы (они там точно есть)
         for k in ['Lbin', 'pitchbin', 'Ebin', 'Rig']:
             val = get_val(mat, k)
             if val is None: val = get_val(mat, k.lower())
             if val is not None: bininfo[k] = val
 
-        # 2. ВЫЧИСЛЯЕМ то, чего нет (для полного соответствия валидации)
-        # Энергия и L - логарифмические (геометрическое среднее)
-        bininfo['Ecenters'], bininfo['dE'] = calculate_bin_params(bininfo['Ebin'], 'geometric')
-        bininfo['Rigcenters'], bininfo['dR'] = calculate_bin_params(bininfo['Rig'], 'geometric')
-        bininfo['Lcenters'], bininfo['dL'] = calculate_bin_params(bininfo['Lbin'], 'geometric')
+        # Вычисляем параметры и КОЛИЧЕСТВО бинов для каждого набора
+        bininfo['Ecenters'], bininfo['dE'], bininfo['nE'] = calculate_bin_params(bininfo['Ebin'], 'geometric')
+        bininfo['Rigcenters'], bininfo['dR'], bininfo['nR'] = calculate_bin_params(bininfo['Rig'], 'geometric')
+        bininfo['Lcenters'], bininfo['dL'], bininfo['nL'] = calculate_bin_params(bininfo['Lbin'], 'geometric')
+        bininfo['pitchcenters'], bininfo['dPitch'], bininfo['nPitch'] = calculate_bin_params(bininfo['pitchbin'], 'arithmetic')
         
-        # Питч-углы - линейные (арифметическое среднее)
-        bininfo['pitchcenters'], bininfo['dPitch'] = calculate_bin_params(bininfo['pitchbin'], 'arithmetic')
-        
-        print("[CONFIG] Бины и ошибки (dE, dR) успешно вычислены.")
+        print("[CONFIG] Бины и размеры загружены успешно.")
 
     except Exception as e: 
-        print(f"[CONFIG] Ошибка обработки BinningInfo: {e}")
+        print(f"[CONFIG] Ошибка: {e}")
         pass
         
     return bininfo
@@ -163,10 +155,7 @@ GEN_STR = ['Alt1sec', 'Babs1sec', 'BB01sec', 'L1sec','Lat1sec', 'Lon1sec']
 UNIT_STR = ['km', 'G', '', 'G', 'G', 'Re']
 TBIN_STR = ['passage','day','Separate Periods']
 
-# === ИНИЦИАЛИЗАЦИЯ ===
 BIN_INFO = load_binning_info_direct()
 BINNING_STR = get_unique_stdbinnings()
 GEO_STR, SELECT_STR, GS_ARRAY, FILE_INFO = load_metadata_full()
-
-if GS_ARRAY.ndim != 2: 
-    GS_ARRAY = np.ones((len(GEO_STR), len(SELECT_STR)), dtype=bool)
+if GS_ARRAY.ndim != 2: GS_ARRAY = np.ones((len(GEO_STR), len(SELECT_STR)), dtype=bool)

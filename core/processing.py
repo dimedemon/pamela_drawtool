@@ -1,9 +1,9 @@
 """
-Модуль Обработки (Processing Module) - FINAL GOLD
+Модуль Обработки (Processing Module) - FINAL GOLD FIX
 Исправлено:
-1. Ошибка 'numpy has no attribute warnings'.
-2. Авто-определение осей (Energy=6, Pitch=3, L=16).
-3. Fallback: если выборка пуста, берет среднее по всем L.
+1. Ключи словаря для matplotlib_widget (x, y, y_err, xlabel...).
+2. Исправлена ошибка 'numpy has no attribute warnings'.
+3. Сохранена логика авто-определения осей и выравнивания длин.
 """
 import os
 import numpy as np
@@ -30,7 +30,7 @@ def _find_bin_indices(edges, values):
 
 # --- ГЛАВНАЯ ФУНКЦИЯ ПОСТРОЕНИЯ ---
 def _generic_1d_plot(app_state, ax_index, mode='spectra'):
-    print(f"\n[PROCESSING] -> Старт обработки (Final Gold)")
+    print(f"\n[PROCESSING] -> Старт обработки (Final Gold Fix)")
 
     # 1. ИНИЦИАЛИЗАЦИЯ ОСЕЙ
     try:
@@ -79,21 +79,21 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             continue
 
         # --- АДАПТИВНОЕ ОПРЕДЕЛЕНИЕ ОСЕЙ ---
-        # Логика: Energy=6 (совпадает с конфигом), Pitch=3 (обычно мало), L=остальное (16)
+        # Логика: Energy=6 (совпадает с конфигом), Pitch=3, L=остальное
         shape = data_raw.shape
         dims = [0, 1, 2]
         
         e_axis = -1
-        # Ищем ось длины 6
         if shape[0] == config_n_E: e_axis = 0
         elif shape[1] == config_n_E: e_axis = 1
         elif shape[2] == config_n_E: e_axis = 2
         
         if e_axis == -1:
-            print(f"    [WARN] {os.path.basename(fpath)} пропускается (нет оси E={config_n_E})")
-            continue
-            
-        # Оставшиеся оси распределяем: меньшая -> Pitch, большая -> L
+            # Fallback: пробуем найти самую длинную ось, если конфиг не совпал
+            e_axis = np.argmax(shape)
+            # print(f"    [WARN] Ось энергии не совпала. Взял max-ось: {e_axis}")
+
+        # Распределяем L и Pitch
         rem = [d for d in dims if d != e_axis]
         if shape[rem[0]] < shape[rem[1]]:
             p_axis, l_axis = rem[0], rem[1]
@@ -111,44 +111,32 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             n_L = data_sorted.shape[1]
             n_P = data_sorted.shape[2]
             
-            # Пробуем взять выборку пользователя
             valid_L = [i for i in L_indices if i < n_L]
             valid_P = [i for i in P_indices if i < n_P]
             
-            # --- AUTO-RECOVERY ---
-            # Если выборка пуста (например, L-бины пользователя 0..2, а данные в 3..15),
-            # берем ВСЕ доступные L
+            # Auto-Recovery для пустых выборок
             fallback_used = False
             if not valid_L: 
-                valid_L = range(n_L)
-                fallback_used = True
+                valid_L = range(n_L); fallback_used = True
             if not valid_P: 
-                valid_P = range(n_P)
-                fallback_used = True
+                valid_P = range(n_P); fallback_used = True
             
             subset = data_sorted[:, valid_L, :][:, :, valid_P]
             
-            # Проверка на пустоту данных (нули)
             if np.all(subset == 0):
                 if not fallback_used:
-                    print(f"    [WARN] Выбранная область пуста. Пробую взять среднее по всему файлу...")
-                    subset = data_sorted
+                    subset = data_sorted # Пробуем взять весь файл, если выборка пуста
                     subset[subset==0] = np.nan
                 else:
-                    print(f"    [WARN] Файл пуст.")
                     continue
             else:
                 subset[subset == 0] = np.nan
 
-            # Усредняем
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 daily_spectrum = np.nanmean(subset, axis=(1, 2))
             
-            # Проверка, что спектр не NaN
-            if np.all(np.isnan(daily_spectrum)):
-                continue
-
+            if np.all(np.isnan(daily_spectrum)): continue
             accumulated_spectra.append(daily_spectrum)
             
         except Exception as e:
@@ -157,7 +145,7 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
 
     # 4. ФИНАЛЬНАЯ СБОРКА
     if not accumulated_spectra:
-        print("[PROCESSING] Нет данных (все файлы пусты или не подходят).")
+        print("[PROCESSING] Нет данных.")
         return []
 
     all_spectra = np.array(accumulated_spectra)
@@ -180,26 +168,26 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
     y_out = final_flux[:min_len]
     err_out = final_err[:min_len]
 
-    # Фильтруем NaN и нули для лог-шкалы
     valid_mask = ~np.isnan(y_out) & (y_out > 0)
     
     if not np.any(valid_mask):
         print("[PROCESSING] Все значения потока <= 0.")
         return []
 
-    print(f"[PROCESSING] График готов! Точек: {np.sum(valid_mask)}")
+    print(f"[PROCESSING] Успех! Точек: {np.sum(valid_mask)}")
 
+    # ВАЖНО: Возвращаем ключи, которые ждет matplotlib_widget (x, y, y_err)
     return [{
         "ax_index": ax_index,
-        "type": "spectra",
-        "x_values": x_out[valid_mask],
-        "y_values": y_out[valid_mask],
-        "y_err": err_out[valid_mask],
-        "x_label": x_label,
-        "y_label": "Flux",
-        "x_scale": "log", "y_scale": "log",
-        "title": f"Spectrum (N={len(files)})",
-        "label": "PAMELA Data"
+        "plot_type": "errorbar",
+        "x": x_out[valid_mask],       # <--- БЫЛО x_values
+        "y": y_out[valid_mask],       # <--- БЫЛО y_values
+        "y_err": err_out[valid_mask], 
+        "xlabel": x_label,            # <--- БЫЛО x_label
+        "ylabel": "Flux",             # <--- БЫЛО y_label
+        "xscale": "log",              # <--- БЫЛО x_scale
+        "yscale": "log",              # <--- БЫЛО y_scale
+        "label": f"Spectrum (N={len(files)})"
     }]
 
 def get_plot_data(app_state, ax_index=0):

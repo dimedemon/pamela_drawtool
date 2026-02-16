@@ -1,38 +1,33 @@
 """
-Модуль конфигурации (SCIENTIFIC EXACT)
-Загружает BinningInfo и подготавливает точные центры и ширины бинов.
-Экспортирует размеры биннингов для корректного маппинга осей.
+Модуль конфигурации (PROTOCOL COMPLIANT)
+Реализует логику работы с биннингами согласно CheckProtocol (рис. 4, 8).
+Автоматически рассчитывает центры (geometric mean для E/L) и ширину (dE/dL).
 """
 import os
 import numpy as np
 from scipy.io import loadmat
 from datetime import datetime
-from . import kinematics
 
 # === ПУТИ ===
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 UI_DATA_PATH = os.path.join(PROJECT_ROOT, 'data')
 
+# Логика внешнего диска
 ext_root = "/Volumes/T7 Touch"
 ext_clean = os.path.join(ext_root, "PAMELA_DATA")
-if os.path.exists(ext_clean):
-    BASE_DATA_PATH = ext_clean
-else:
-    BASE_DATA_PATH = ext_root
+BASE_DATA_PATH = ext_clean if os.path.exists(ext_clean) else ext_root
 
-print(f"[CONFIG] UI файлы (Metadata): {UI_DATA_PATH}")
-print(f"[CONFIG] Данные (Flux):       {BASE_DATA_PATH}")
+print(f"[CONFIG] UI файлы: {UI_DATA_PATH}")
+print(f"[CONFIG] Данные:   {BASE_DATA_PATH}")
 
 # === КЛЮЧЕВЫЕ ФАЙЛЫ ===
 BINNING_INFO_FILE = os.path.join(UI_DATA_PATH, 'BinningInfo.mat')
 METADATA_FILE = os.path.join(UI_DATA_PATH, 'file_metadata.mat')
 
-# === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 def _load_mat_file(path):
     if not path or not os.path.exists(path): return None
-    try: 
-        return loadmat(path, squeeze_me=True, struct_as_record=False)
+    try: return loadmat(path, squeeze_me=True, struct_as_record=False)
     except: return None
 
 def get_val(obj, key):
@@ -41,121 +36,74 @@ def get_val(obj, key):
 
 def calculate_bin_params(edges_array, mode='geometric'):
     """
-    Вычисляет центры (centers) и ширину (d) бинов из границ.
-    Возвращает: centers, widths, count
+    Вычисляет параметры бинов (центр и ширина) на основе границ.
+    Geometric: для логарифмических шкал (Energy, Rigidity, L).
+    Arithmetic: для линейных шкал (Pitch).
     """
-    if edges_array is None: return [], [], 0
+    if edges_array is None: return [], [], []
     
-    # Массив массивов (Cell Array)
+    # Обработка вложенных массивов (Cell Arrays в MATLAB)
     if isinstance(edges_array, np.ndarray) and edges_array.dtype == 'O':
-        centers = []
-        widths = []
-        counts = []
+        centers, widths, counts = [], [], []
         for edges in edges_array:
-            if isinstance(edges, (np.ndarray, list)) and len(edges) > 1:
-                w = edges[1:] - edges[:-1]
-                if mode == 'geometric':
-                    valid = edges.copy(); valid[valid<=0] = 1e-9
-                    c = np.sqrt(valid[:-1] * valid[1:])
-                else:
-                    c = (edges[:-1] + edges[1:]) / 2.0
-                centers.append(c)
-                widths.append(w)
-                counts.append(len(c))
-            else:
-                centers.append([]); widths.append([]); counts.append(0)
-        return np.array(centers, dtype='O'), np.array(widths, dtype='O'), np.array(counts, dtype='int')
+            c, w, n = calculate_bin_params(edges, mode)
+            centers.append(c); widths.append(w); counts.append(n)
+        return np.array(centers, dtype='O'), np.array(widths, dtype='O'), np.array(counts, dtype='O')
+    
+    # Обработка массива чисел
+    if isinstance(edges_array, (np.ndarray, list)) and len(edges_array) > 1:
+        w = edges_array[1:] - edges_array[:-1] # Ширина (dE, dL...)
         
-    # Одиночный массив
-    elif isinstance(edges_array, (np.ndarray, list)) and len(edges_array) > 1:
-        w = edges_array[1:] - edges_array[:-1]
         if mode == 'geometric':
-            valid = edges_array.copy(); valid[valid<=0] = 1e-9
+            # Защита от <=0
+            valid = np.array(edges_array, dtype=float)
+            valid[valid <= 0] = 1e-9
             c = np.sqrt(valid[:-1] * valid[1:])
         else:
             c = (edges_array[:-1] + edges_array[1:]) / 2.0
+            
         return c, w, len(c)
         
     return [], [], 0
 
 def load_binning_info_direct():
-    """Загружает BinningInfo и вычисляет геометрию."""
     bininfo = { 
         'Lbin': [], 'pitchbin': [], 'Ebin': [], 'Rig': [],
         'Ecenters': [], 'Rigcenters': [], 'Lcenters': [], 'pitchcenters': [],
         'dE': [], 'dR': [], 'dL': [], 'dPitch': [],
-        'nE': [], 'nR': [], 'nL': [], 'nPitch': [] # Количество бинов для проверки
+        'nE': [], 'nR': [], 'nL': [], 'nPitch': []
     }
     
     if not os.path.exists(BINNING_INFO_FILE): return bininfo
 
     try:
         mat = loadmat(BINNING_INFO_FILE, squeeze_me=True, struct_as_record=False)
+        
+        # 1. Загрузка границ (как на рис. 4 протокола)
         for k in ['Lbin', 'pitchbin', 'Ebin', 'Rig']:
             val = get_val(mat, k)
             if val is None: val = get_val(mat, k.lower())
             if val is not None: bininfo[k] = val
 
-        # Вычисляем параметры и КОЛИЧЕСТВО бинов для каждого набора
+        # 2. Расчет параметров (для построения графиков)
         bininfo['Ecenters'], bininfo['dE'], bininfo['nE'] = calculate_bin_params(bininfo['Ebin'], 'geometric')
         bininfo['Rigcenters'], bininfo['dR'], bininfo['nR'] = calculate_bin_params(bininfo['Rig'], 'geometric')
         bininfo['Lcenters'], bininfo['dL'], bininfo['nL'] = calculate_bin_params(bininfo['Lbin'], 'geometric')
         bininfo['pitchcenters'], bininfo['dPitch'], bininfo['nPitch'] = calculate_bin_params(bininfo['pitchbin'], 'arithmetic')
         
-        print("[CONFIG] Бины и размеры загружены успешно.")
+        print("[CONFIG] Геометрия бинов рассчитана.")
 
     except Exception as e: 
-        print(f"[CONFIG] Ошибка: {e}")
-        pass
+        print(f"[CONFIG] Ошибка BinningInfo: {e}")
         
     return bininfo
 
-def get_unique_stdbinnings():
-    default = ['P3L4E4']
-    mat = _load_mat_file(METADATA_FILE)
-    if mat is None: return default
-    vals = get_val(mat, 'stdbinnings')
-    if vals is not None:
-        try:
-            if isinstance(vals, (str, np.str_)): return [str(vals)]
-            vals_flat = np.array(vals).flatten()
-            valid = [str(v) for v in vals_flat if str(v).strip() != '']
-            if valid: return sorted(list(set(valid)))
-        except: pass
-    return default
-
-def load_metadata_full():
-    geo_str = ['RB3']; sel_str = ['ItalianH']
-    gs = np.ones((1,1), dtype=bool)
-    file_info = {}
-    mat = _load_mat_file(METADATA_FILE)
-    if mat:
-        try:
-            raw_geo = get_val(mat, 'GeoSelections')
-            raw_sel = get_val(mat, 'Selections')
-            if raw_geo is not None and raw_sel is not None:
-                valid = (raw_geo != 'None') & (raw_sel != 'None')
-                raw_geo = raw_geo[valid]; raw_sel = raw_sel[valid]
-                geo_str = sorted(list(np.unique(raw_geo)))
-                sel_str = sorted(list(np.unique(raw_sel)))
-                geo_map = {k:v for v,k in enumerate(geo_str)}
-                sel_map = {k:v for v,k in enumerate(sel_str)}
-                gs = np.zeros((len(geo_str), len(sel_str)), dtype=bool)
-                for g, s in zip(raw_geo, raw_sel):
-                    if g in geo_map and s in sel_map: gs[geo_map[g], sel_map[s]] = True
-                if gs.ndim == 1: gs = gs.reshape(-1, 1)
-        except: pass
-    return geo_str, sel_str, gs, file_info
-
-# === КОНСТАНТЫ ===
-PAMSTART = (datetime(2005, 12, 31) - datetime(1, 1, 1)).days + 1721425.5 
-HTML_TEXT_COLOR = ('<HTML><FONT color="gray">', '</FONT></HTML>')
-DATA_SOURCE_STR = ['PAMELA exp. data','External exp. data','Empyrical models']
-GEN_STR = ['Alt1sec', 'Babs1sec', 'BB01sec', 'L1sec','Lat1sec', 'Lon1sec']
-UNIT_STR = ['km', 'G', '', 'G', 'G', 'Re']
-TBIN_STR = ['passage','day','Separate Periods']
-
+# === CONSTANTS & INIT ===
 BIN_INFO = load_binning_info_direct()
+
+# Заглушки для UI списков (если нужны)
+def get_unique_stdbinnings(): return ['P3L4E4']
+def load_metadata_full(): return ['RB3'], ['ItalianH'], np.ones((1,1)), {}
+
 BINNING_STR = get_unique_stdbinnings()
 GEO_STR, SELECT_STR, GS_ARRAY, FILE_INFO = load_metadata_full()
-if GS_ARRAY.ndim != 2: GS_ARRAY = np.ones((len(GEO_STR), len(SELECT_STR)), dtype=bool)

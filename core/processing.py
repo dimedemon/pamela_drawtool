@@ -1,13 +1,13 @@
 """
-Модуль Обработки (Processing Module) - FINAL ROBUST v2
+Модуль Обработки (Processing Module) - FINAL GOLD
 Исправлено:
-1. Ошибка 'numpy has no attribute warnings' (для NumPy 1.24+).
-2. Ошибки размерностей массивов (Robust slicing).
-3. Авто-определение осей (Adaptive Axes).
+1. Ошибка 'numpy has no attribute warnings'.
+2. Авто-определение осей (Energy=6, Pitch=3, L=16).
+3. Fallback: если выборка пуста, берет среднее по всем L.
 """
 import os
 import numpy as np
-import warnings  # <--- ДОБАВЛЕНО: Стандартный модуль вместо np.warnings
+import warnings
 from scipy.io import loadmat
 from . import config
 from . import state
@@ -30,11 +30,10 @@ def _find_bin_indices(edges, values):
 
 # --- ГЛАВНАЯ ФУНКЦИЯ ПОСТРОЕНИЯ ---
 def _generic_1d_plot(app_state, ax_index, mode='spectra'):
-    print(f"\n[PROCESSING] -> Старт обработки (Robust Mode v2)")
+    print(f"\n[PROCESSING] -> Старт обработки (Final Gold)")
 
     # 1. ИНИЦИАЛИЗАЦИЯ ОСЕЙ
     try:
-        # Индексы 1-based -> 0-based
         L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
         P_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
         
@@ -69,44 +68,39 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
         mat = _load_mat_file(fpath)
         if mat is None: continue
         
-        # Поиск данных (поддержка Flux, flux, Jday, J)
+        # Поиск данных
         data_raw = None
-        var_name = "Unknown"
-        keys = mat.keys()
-        
         for key in ['Flux', 'flux', 'Jday', 'J']:
-            if key in keys:
+            if key in mat.keys():
                 data_raw = mat[key]
-                var_name = key
                 break
         
-        if data_raw is None:
-            continue
-
-        if data_raw.ndim != 3:
+        if data_raw is None or data_raw.ndim != 3:
             continue
 
         # --- АДАПТИВНОЕ ОПРЕДЕЛЕНИЕ ОСЕЙ ---
+        # Логика: Energy=6 (совпадает с конфигом), Pitch=3 (обычно мало), L=остальное (16)
         shape = data_raw.shape
         dims = [0, 1, 2]
         
         e_axis = -1
+        # Ищем ось длины 6
         if shape[0] == config_n_E: e_axis = 0
         elif shape[1] == config_n_E: e_axis = 1
         elif shape[2] == config_n_E: e_axis = 2
         
         if e_axis == -1:
-            print(f"    [WARN] Пропуск {os.path.basename(fpath)}: нет оси длины {config_n_E}. Shape={shape}")
+            print(f"    [WARN] {os.path.basename(fpath)} пропускается (нет оси E={config_n_E})")
             continue
             
-        # Распределяем L и Pitch
-        rem_axes = [d for d in dims if d != e_axis]
-        if shape[rem_axes[0]] < shape[rem_axes[1]]:
-            p_axis, l_axis = rem_axes[0], rem_axes[1]
+        # Оставшиеся оси распределяем: меньшая -> Pitch, большая -> L
+        rem = [d for d in dims if d != e_axis]
+        if shape[rem[0]] < shape[rem[1]]:
+            p_axis, l_axis = rem[0], rem[1]
         else:
-            p_axis, l_axis = rem_axes[1], rem_axes[0]
+            p_axis, l_axis = rem[1], rem[0]
 
-        # Транспонируем в стандарт (Energy, L, Pitch)
+        # Транспонируем в (Energy, L, Pitch)
         if [e_axis, l_axis, p_axis] != [0, 1, 2]:
             data_sorted = np.transpose(data_raw, (e_axis, l_axis, p_axis))
         else:
@@ -117,19 +111,44 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             n_L = data_sorted.shape[1]
             n_P = data_sorted.shape[2]
             
+            # Пробуем взять выборку пользователя
             valid_L = [i for i in L_indices if i < n_L]
             valid_P = [i for i in P_indices if i < n_P]
             
-            if not valid_L or not valid_P: continue
-
-            subset = data_sorted[:, valid_L, :][:, :, valid_P]
-            subset[subset == 0] = np.nan
+            # --- AUTO-RECOVERY ---
+            # Если выборка пуста (например, L-бины пользователя 0..2, а данные в 3..15),
+            # берем ВСЕ доступные L
+            fallback_used = False
+            if not valid_L: 
+                valid_L = range(n_L)
+                fallback_used = True
+            if not valid_P: 
+                valid_P = range(n_P)
+                fallback_used = True
             
-            # Используем стандартный warnings вместо np.warnings
+            subset = data_sorted[:, valid_L, :][:, :, valid_P]
+            
+            # Проверка на пустоту данных (нули)
+            if np.all(subset == 0):
+                if not fallback_used:
+                    print(f"    [WARN] Выбранная область пуста. Пробую взять среднее по всему файлу...")
+                    subset = data_sorted
+                    subset[subset==0] = np.nan
+                else:
+                    print(f"    [WARN] Файл пуст.")
+                    continue
+            else:
+                subset[subset == 0] = np.nan
+
+            # Усредняем
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 daily_spectrum = np.nanmean(subset, axis=(1, 2))
             
+            # Проверка, что спектр не NaN
+            if np.all(np.isnan(daily_spectrum)):
+                continue
+
             accumulated_spectra.append(daily_spectrum)
             
         except Exception as e:
@@ -138,7 +157,7 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
 
     # 4. ФИНАЛЬНАЯ СБОРКА
     if not accumulated_spectra:
-        print("[PROCESSING] Нет данных.")
+        print("[PROCESSING] Нет данных (все файлы пусты или не подходят).")
         return []
 
     all_spectra = np.array(accumulated_spectra)
@@ -157,28 +176,25 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
     # --- SAFETY CUT (Гарантия равных длин) ---
     min_len = min(len(final_X), len(final_flux), len(final_err))
     
-    final_X = final_X[:min_len]
-    final_flux = final_flux[:min_len]
-    final_err = final_err[:min_len]
+    x_out = final_X[:min_len]
+    y_out = final_flux[:min_len]
+    err_out = final_err[:min_len]
 
-    valid_mask = ~np.isnan(final_flux) & (final_flux > 0)
+    # Фильтруем NaN и нули для лог-шкалы
+    valid_mask = ~np.isnan(y_out) & (y_out > 0)
     
-    x_out = final_X[valid_mask]
-    y_out = final_flux[valid_mask]
-    err_out = final_err[valid_mask]
-
-    if len(x_out) == 0:
-        print("[PROCESSING] Все данные пусты (NaN/Zero).")
+    if not np.any(valid_mask):
+        print("[PROCESSING] Все значения потока <= 0.")
         return []
 
-    print(f"[PROCESSING] Успех! Точек: {len(x_out)}")
+    print(f"[PROCESSING] График готов! Точек: {np.sum(valid_mask)}")
 
     return [{
         "ax_index": ax_index,
         "type": "spectra",
-        "x_values": x_out,
-        "y_values": y_out,
-        "y_err": err_out,
+        "x_values": x_out[valid_mask],
+        "y_values": y_out[valid_mask],
+        "y_err": err_out[valid_mask],
         "x_label": x_label,
         "y_label": "Flux",
         "x_scale": "log", "y_scale": "log",

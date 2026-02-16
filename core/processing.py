@@ -39,7 +39,7 @@ def _get_spectra_data(app_state, ax_index):
         if app_state.ror_e == 1: # Energy
             x_centers_all = config.BIN_INFO['Ecenters'][idx_E]
             x_err_half_all = config.BIN_INFO['dE'][idx_E] / 2.0
-            x_label = "Kinetic Energy (GeV)"
+            x_label = "E (GeV)"
         else: # Rigidity
             x_centers_all = config.BIN_INFO['Rigcenters'][idx_E]
             x_err_half_all = config.BIN_INFO['dR'][idx_E] / 2.0

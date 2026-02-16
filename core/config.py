@@ -10,16 +10,13 @@ from datetime import datetime
 from . import kinematics
 
 # === ПУТИ ===
-# 1. ЛОКАЛЬНАЯ ПАПКА (Внутри проекта) - Для Метаданных
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 UI_DATA_PATH = os.path.join(PROJECT_ROOT, 'data')
 
-# 2. ВНЕШНИЙ ДИСК - Для тяжелых данных
-# Если папка PAMELA_DATA существует - берем её, иначе корень
+# Внешний диск
 ext_root = "/Volumes/T7 Touch"
 ext_clean = os.path.join(ext_root, "PAMELA_DATA")
-
 if os.path.exists(ext_clean):
     BASE_DATA_PATH = ext_clean
 else:
@@ -35,39 +32,34 @@ METADATA_FILE = os.path.join(UI_DATA_PATH, 'file_metadata.mat')
 # === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 def _load_mat_file(path):
     if not path or not os.path.exists(path): return None
-    try: 
-        return loadmat(path, squeeze_me=True, struct_as_record=False)
+    try: return loadmat(path, squeeze_me=True, struct_as_record=False)
     except: return None
 
 def get_val(obj, key):
-    """Безопасное получение значения из dict или object"""
-    if isinstance(obj, dict): 
-        return obj.get(key, None)
+    if isinstance(obj, dict): return obj.get(key, None)
     return getattr(obj, key, None)
 
 def calculate_bin_params(edges_array, mode='geometric'):
     """
-    Вычисляет центры бинов и их ширину.
-    mode: 'geometric' (для E, R, L - лог. шкалы) или 'arithmetic' (для Pitch - лин. шкалы)
+    Вычисляет центры (centers) и ширину (d) бинов из границ.
     """
     if edges_array is None: return [], []
     
-    # Обработка массива массивов (MATLAB cell array)
+    # Если это массив массивов (cell array)
     if isinstance(edges_array, np.ndarray) and edges_array.dtype == 'O':
         centers = []
         widths = []
         for edges in edges_array:
             if isinstance(edges, (np.ndarray, list)) and len(edges) > 1:
-                # Ширина всегда разница
-                w = edges[1:] - edges[:-1]
+                w = edges[1:] - edges[:-1] # Ширина
                 
-                # Центры зависят от физики
+                # Центр
                 if mode == 'geometric':
-                    # Защита от отрицательных значений при sqrt
+                    # Защита от отрицательных значений
                     valid_edges = edges.copy()
-                    valid_edges[valid_edges < 0] = 1e-9 
+                    valid_edges[valid_edges <= 0] = 1e-9 
                     c = np.sqrt(valid_edges[:-1] * valid_edges[1:])
-                else: # arithmetic
+                else: 
                     c = (edges[:-1] + edges[1:]) / 2.0
                 
                 centers.append(c)
@@ -77,12 +69,12 @@ def calculate_bin_params(edges_array, mode='geometric'):
                 widths.append([])
         return np.array(centers, dtype='O'), np.array(widths, dtype='O')
         
-    # Обработка одиночного массива
+    # Если это одиночный массив
     elif isinstance(edges_array, (np.ndarray, list)) and len(edges_array) > 1:
         w = edges_array[1:] - edges_array[:-1]
         if mode == 'geometric':
             valid_edges = edges_array.copy()
-            valid_edges[valid_edges < 0] = 1e-9
+            valid_edges[valid_edges <= 0] = 1e-9
             c = np.sqrt(valid_edges[:-1] * valid_edges[1:])
         else:
             c = (edges_array[:-1] + edges_array[1:]) / 2.0
@@ -91,48 +83,34 @@ def calculate_bin_params(edges_array, mode='geometric'):
     return [], []
 
 def load_binning_info_direct():
-    """
-    Загружает BinningInfo.mat и генерирует недостающие Ecenters, dE и т.д.
-    """
+    """Загружает BinningInfo и вычисляет недостающую геометрию."""
     bininfo = { 
         'Lbin': [], 'pitchbin': [], 'Ebin': [], 'Rig': [],
         'Ecenters': [], 'Rigcenters': [], 'Lcenters': [], 'pitchcenters': [],
         'dE': [], 'dR': [], 'dL': [], 'dPitch': []
     }
     
-    if not os.path.exists(BINNING_INFO_FILE): 
-        print("[CONFIG] BinningInfo.mat не найден!")
-        return bininfo
+    if not os.path.exists(BINNING_INFO_FILE): return bininfo
 
     try:
         mat = loadmat(BINNING_INFO_FILE, squeeze_me=True, struct_as_record=False)
         
-        # 1. Загружаем исходные границы
-        # Используем гибкий поиск ключей (Ebin, ebin, EBin...)
-        keys_map = {
-            'Lbin': ['Lbin', 'lbin'],
-            'pitchbin': ['pitchbin', 'Pitchbin', 'pitchb'],
-            'Ebin': ['Ebin', 'ebin'],
-            'Rig': ['Rig', 'rig', 'Rigidity']
-        }
-        
-        for standard_key, variants in keys_map.items():
-            for v in variants:
-                val = get_val(mat, v)
-                if val is not None:
-                    bininfo[standard_key] = val
-                    break
+        # 1. Загружаем исходные границы (они там точно есть)
+        for k in ['Lbin', 'pitchbin', 'Ebin', 'Rig']:
+            val = get_val(mat, k)
+            if val is None: val = get_val(mat, k.lower())
+            if val is not None: bininfo[k] = val
 
-        # 2. Вычисляем Центры и Ширины
-        # Энергия, Жесткость, L-оболочки -> Геометрическое среднее (Log scale)
-        bininfo['Ecenters'], bininfo['dE'] = calculate_bin_params(bininfo['Ebin'], mode='geometric')
-        bininfo['Rigcenters'], bininfo['dR'] = calculate_bin_params(bininfo['Rig'], mode='geometric')
-        bininfo['Lcenters'], bininfo['dL'] = calculate_bin_params(bininfo['Lbin'], mode='geometric')
+        # 2. ВЫЧИСЛЯЕМ то, чего нет (для полного соответствия валидации)
+        # Энергия и L - логарифмические (геометрическое среднее)
+        bininfo['Ecenters'], bininfo['dE'] = calculate_bin_params(bininfo['Ebin'], 'geometric')
+        bininfo['Rigcenters'], bininfo['dR'] = calculate_bin_params(bininfo['Rig'], 'geometric')
+        bininfo['Lcenters'], bininfo['dL'] = calculate_bin_params(bininfo['Lbin'], 'geometric')
         
-        # Питч-углы -> Арифметическое среднее (Linear scale)
-        bininfo['pitchcenters'], bininfo['dPitch'] = calculate_bin_params(bininfo['pitchbin'], mode='arithmetic')
+        # Питч-углы - линейные (арифметическое среднее)
+        bininfo['pitchcenters'], bininfo['dPitch'] = calculate_bin_params(bininfo['pitchbin'], 'arithmetic')
         
-        print("[CONFIG] Бины успешно загружены и вычислены.")
+        print("[CONFIG] Бины и ошибки (dE, dR) успешно вычислены.")
 
     except Exception as e: 
         print(f"[CONFIG] Ошибка обработки BinningInfo: {e}")
@@ -158,7 +136,6 @@ def load_metadata_full():
     geo_str = ['RB3']; sel_str = ['ItalianH']
     gs = np.ones((1,1), dtype=bool)
     file_info = {}
-
     mat = _load_mat_file(METADATA_FILE)
     if mat:
         try:
@@ -169,8 +146,6 @@ def load_metadata_full():
                 raw_geo = raw_geo[valid]; raw_sel = raw_sel[valid]
                 geo_str = sorted(list(np.unique(raw_geo)))
                 sel_str = sorted(list(np.unique(raw_sel)))
-                
-                # Создаем матрицу совместимости (GSarray)
                 geo_map = {k:v for v,k in enumerate(geo_str)}
                 sel_map = {k:v for v,k in enumerate(sel_str)}
                 gs = np.zeros((len(geo_str), len(sel_str)), dtype=bool)
@@ -178,23 +153,15 @@ def load_metadata_full():
                     if g in geo_map and s in sel_map: gs[geo_map[g], sel_map[s]] = True
                 if gs.ndim == 1: gs = gs.reshape(-1, 1)
         except: pass
-
     return geo_str, sel_str, gs, file_info
 
 # === КОНСТАНТЫ ===
 PAMSTART = (datetime(2005, 12, 31) - datetime(1, 1, 1)).days + 1721425.5 
 HTML_TEXT_COLOR = ('<HTML><FONT color="gray">', '</FONT></HTML>')
-DATA_SOURCE_STR = ['PAMELA exp. data','Efficiency simulation','Anisotropic flux simulation','External exp. data','Empyrical models','Space weather data']
-GEN_STR = ['Alt1sec', 'Babs1sec', 'BB01sec', 'Blaz', 'Blzen', 'L1sec','Lat1sec', 'Lon1sec', 'Roll1sec', 'SPitch1sec', 'Yaw1sec','aTime', 'eqpitchlim', 'LocPitch', 'maxgyro', 'mingyro','TimeGap1sec', 'TimeGap2sec', 'trkMaskI1sec', 'trkMaskS1sec', 'Trig1sec']
-GEN_X_STR = ['aTime', 'aTime', 'L1sec', 'BB01sec', 'Alt1sec', 'Lat1sec', 'Lon1sec']
-WHAT_X_VARS = ['Date & time', 'time from entrance', 'L', 'B/B0', 'Altitude','latitude', 'longitude']
-WHAT_Y_VARS = ['Altitude', 'Babs', 'B/B_0', 'Baz loc', 'Bzen loc', 'L', 'latitude','longitude', 'Roll', 'SPitch', 'Yaw', 'absolute time','maximum eqpitch', 'Local Pitch', 'maximum gyroangle','minimum gyroangle', 'TimeGap1', 'TimeGap2', 'TrkMaskI', 'TrkMaskS', 'Trigger']
-UNIT_X_STR = ['m', 's', 'Re', '', 'km', '^{\\circ}', '^{\\circ}']
-UNIT_STR = ['km', 'G', '', 'G', 'G', 'Re', '^{\\circ}', '^{\\circ}', '^{\\circ}','^{\\circ}', '^{\\circ}', 's', '^{\\circ}', '^{\\circ}', '^{\\circ}','^{\\circ}', 's', 's', '', '', '' ]
-TBIN_STR = ['passage','day','month','3months','6months','year','bartels','Separate Periods']
-DISTR_VARS = ['Flux','Number of events','Gathering power','livetime','Countrate','Relative error of flux','Four entities at once']
-PLOT_KINDS = ['Energy spectra','Rigidity spectra','pitch-angular distribution','Radial distribution','Temporal variations','Variations along orbit','Fluxes Histogram','L-pitch map','E-pitch map','E-L map','Auxiliary parameters']
-SP_WEATHER_STR = ['f10p7','SSN','Dst','Kp','Ap']
+DATA_SOURCE_STR = ['PAMELA exp. data','External exp. data','Empyrical models']
+GEN_STR = ['Alt1sec', 'Babs1sec', 'BB01sec', 'L1sec','Lat1sec', 'Lon1sec']
+UNIT_STR = ['km', 'G', '', 'G', 'G', 'Re']
+TBIN_STR = ['passage','day','Separate Periods']
 
 # === ИНИЦИАЛИЗАЦИЯ ===
 BIN_INFO = load_binning_info_direct()

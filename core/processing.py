@@ -1,6 +1,6 @@
 """
-Модуль Обработки (Processing Module) - DICT FIX + SMART RECOVERY
-Исправлена ошибка доступа к ключам словаря .mat файла.
+Модуль Обработки (Processing Module) - ADAPTIVE DIMENSION SOLVER
+Автоматически определяет оси (Energy, L, Pitch) на основе совпадения с конфигом.
 """
 import os
 import numpy as np
@@ -13,7 +13,6 @@ from . import file_manager
 def _load_mat_file(file_path):
     if not os.path.exists(file_path): return None
     try: 
-        # loadmat возвращает DICT
         return loadmat(file_path, squeeze_me=True, struct_as_record=False)
     except: return None
 
@@ -27,11 +26,11 @@ def _find_bin_indices(edges, values):
 
 # --- ЛОГИКА ПОСТРОЕНИЯ СПЕКТРОВ ---
 def _generic_1d_plot(app_state, ax_index, mode='spectra'):
-    print(f"\n[PROCESSING] -> Старт обработки _generic_1d_plot")
+    print(f"\n[PROCESSING] -> Старт обработки (Adaptive Mode)")
 
     # 1. Инициализация осей из конфига
     try:
-        # Индексы в state 1-based, поэтому -1
+        # Индексы state 1-based -> 0-based
         L_edges = config.BIN_INFO['Lbin'][app_state.lb - 1]
         P_edges = config.BIN_INFO['pitchbin'][app_state.pitchb - 1]
         
@@ -39,101 +38,118 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             X_edges = config.BIN_INFO['Ebin'][app_state.eb - 1]
             x_label = "Kinetic Energy (GeV)"
         else: # Rigidity
-            X_edges = config.BIN_INFO['Rig'][app_state.eb - 1] # Обычно совпадает индексом
+            X_edges = config.BIN_INFO['Rig'][app_state.eb - 1]
             x_label = "Rigidity (GV)"
             
         X_centers = np.sqrt(X_edges[:-1] * X_edges[1:])
-        print(f"[PROCESSING] Конфиг ожидает {len(X_centers)} точек по оси X.")
+        config_n_E = len(X_centers)
+        print(f"[PROCESSING] Конфиг: Energy={config_n_E} bins.")
     except Exception as e:
         print(f"[ERROR] Ошибка инициализации бинов: {e}")
         return []
 
-    # 2. Индексы выборки (Selection)
+    # 2. Индексы выборки
     target_l = app_state.l if (app_state.l and len(app_state.l) > 0) else [(L_edges[0] + L_edges[-1])/2]
     target_p = app_state.pitch if (app_state.pitch and len(app_state.pitch) > 0) else [45.0]
 
     L_indices = _find_bin_indices(L_edges, target_l)
     P_indices = _find_bin_indices(P_edges, target_p)
+    print(f"[PROCESSING] Selected Indices -> L:{L_indices}, P:{P_indices}")
 
     # 3. Поиск файлов
     files = file_manager.get_input_filenames(app_state, 'flux')
     if not files: return []
 
     accumulated_spectra = []
-    real_x_axis = None # Суррогатная ось, если биннинг не совпадет
-
+    
     for fpath in files:
         mat = _load_mat_file(fpath)
         if mat is None: continue
         
-        # Получаем ключи словаря (для дебага и поиска)
-        mat_keys = mat.keys()
-        
-        # --- SMART VARIABLE SEARCH (DICT MODE) ---
-        data_3d = None
+        # Поиск переменной (Flux, flux, Jday, J)
+        data_raw = None
         var_name = "Unknown"
+        keys = mat.keys()
         
-        # Ищем переменную в ключах словаря
-        if 'Flux' in mat_keys: 
-            data_3d = mat['Flux']; var_name = "Flux"
-        elif 'flux' in mat_keys: 
-            data_3d = mat['flux']; var_name = "flux"
-        elif 'Jday' in mat_keys:
-            data_3d = mat['Jday']; var_name = "Jday"
-            
-            # --- АВТО-КОРРЕКЦИЯ Jday ---
-            # Jday часто имеет структуру (Pitch, L, Energy) -> (3, 6, 16)
-            # Нам нужно (Energy, L, Pitch)
-            if data_3d.ndim == 3:
-                # Эвристика: если 1-я ось маленькая (Pitch=3), а последняя большая (Energy=16)
-                if data_3d.shape[0] < data_3d.shape[2]: 
-                    print(f"    [AUTO-FIX] Транспонирую Jday {data_3d.shape} -> (Energy, L, Pitch)")
-                    # axis 0->2 (Pitch в конец), axis 1->1 (L на месте), axis 2->0 (Energy в начало)
-                    data_3d = np.transpose(data_3d, (2, 1, 0))
+        for key in ['Flux', 'flux', 'Jday', 'J']:
+            if key in keys:
+                data_raw = mat[key]
+                var_name = key
+                break
         
-        elif 'J' in mat_keys:
-            data_3d = mat['J']; var_name = "J"
-            
-        if data_3d is None:
-            # Выводим реальные ключи файла, исключая служебные
-            clean_keys = [k for k in mat_keys if not k.startswith('__')]
-            print(f"    [WARN] В файле {os.path.basename(fpath)} нет Flux/Jday. Доступны: {clean_keys}")
+        if data_raw is None:
+            print(f"    [WARN] {os.path.basename(fpath)}: Переменные Flux/Jday не найдены.")
             continue
 
-        # --- ОБРАБОТКА РАЗМЕРНОСТЕЙ ---
-        if data_3d.ndim != 3:
-            print(f"    [WARN] {var_name} имеет странную размерность {data_3d.shape}. Пропуск.")
+        if data_raw.ndim != 3:
+            print(f"    [WARN] {var_name} имеет размерность {data_raw.shape} != 3. Пропуск.")
+            continue
+
+        # --- АДАПТИВНОЕ ОПРЕДЕЛЕНИЕ ОСЕЙ ---
+        # Нам нужно привести данные к виду (Energy, L, Pitch)
+        
+        shape = data_raw.shape
+        dims = [0, 1, 2]
+        
+        # 1. Ищем ось Энергии (совпадение с config_n_E)
+        e_axis = -1
+        if shape[0] == config_n_E: e_axis = 0
+        elif shape[1] == config_n_E: e_axis = 1
+        elif shape[2] == config_n_E: e_axis = 2
+        
+        if e_axis == -1:
+            print(f"    [WARN] {os.path.basename(fpath)}: Не найдена ось длины {config_n_E}. Shape={shape}")
+            # Fallback: предполагаем, что Energy - это ось 0 (стандарт)
+            # Или создадим суррогатную ось, но пока пропустим для чистоты
             continue
             
-        # Проверка биннинга по энергии (ось 0)
-        file_n_energy = data_3d.shape[0]
-        config_n_energy = len(X_centers)
+        # 2. Оставшиеся оси распределяем между Pitch и L
+        # Обычно Pitch < L. 
+        rem_axes = [d for d in dims if d != e_axis] # Два оставшихся индекса
         
-        # Если количество точек энергии в файле не совпадает с конфигом
-        if file_n_energy != config_n_energy:
-            print(f"    [WARN] Несовпадение бинов! Файл: {file_n_energy}, Конфиг: {config_n_energy}.")
-            if real_x_axis is None:
-                print("    [FIX] Создаю суррогатную ось X (линейную), чтобы отобразить данные.")
-                # Делаем линейную шкалу от мин до макс энергии конфига, но с шагом файла
-                real_x_axis = np.geomspace(X_centers[0], X_centers[-1], file_n_energy)
+        size_a = shape[rem_axes[0]]
+        size_b = shape[rem_axes[1]]
+        
+        if size_a < size_b:
+            p_axis = rem_axes[0]
+            l_axis = rem_axes[1]
+        else:
+            p_axis = rem_axes[1]
+            l_axis = rem_axes[0]
 
-        # Вырезаем данные
+        # 3. Транспонируем в (Energy, L, Pitch)
+        # target order: [e_axis, l_axis, p_axis]
+        if [e_axis, l_axis, p_axis] != [0, 1, 2]:
+            print(f"    [AUTO-FIX] {var_name} {shape}. Mapping: E(ax{e_axis})={shape[e_axis]}, L(ax{l_axis})={shape[l_axis]}, P(ax{p_axis})={shape[p_axis]}")
+            data_sorted = np.transpose(data_raw, (e_axis, l_axis, p_axis))
+        else:
+            data_sorted = data_raw
+
+        # Теперь data_sorted гарантированно (Energy, L, Pitch)
+        # E=6, L=16 (например), P=3 (например)
+        
+        # --- СРЕЗ ДАННЫХ ---
         try:
-            # Защита от выхода за границы индексов L и P
-            # data_3d shape теперь (Energy, L, Pitch)
-            valid_L = [i for i in L_indices if i < data_3d.shape[1]]
-            valid_P = [i for i in P_indices if i < data_3d.shape[2]]
+            # Проверяем границы
+            n_L = data_sorted.shape[1]
+            n_P = data_sorted.shape[2]
             
-            if not valid_L or not valid_P:
-                print(f"    [WARN] Индексы выходят за границы. L_file={data_3d.shape[1]}, P_file={data_3d.shape[2]}")
+            # Фильтруем индексы, которые выходят за границы файла
+            valid_L = [i for i in L_indices if i < n_L]
+            valid_P = [i for i in P_indices if i < n_P]
+            
+            if len(valid_L) == 0:
+                print(f"    [WARN] Нет валидных индексов L. Запрошено: {L_indices}, Доступно: 0..{n_L-1}")
+                continue
+            if len(valid_P) == 0:
+                print(f"    [WARN] Нет валидных индексов P. Запрошено: {P_indices}, Доступно: 0..{n_P-1}")
                 continue
 
-            # Срез: [Все энергии, Выбранные L, Выбранные P]
-            # np.ix_ сложен для 3D, делаем поэтапно
-            subset = data_3d[:, valid_L, :][:, :, valid_P]
+            # Срезаем
+            subset = data_sorted[:, valid_L, :][:, :, valid_P]
             
+            # Усредняем
             subset[subset == 0] = np.nan
-            # Усредняем по L и Pitch (оси 1 и 2)
             daily_spectrum = np.nanmean(subset, axis=(1, 2))
             
             accumulated_spectra.append(daily_spectrum)
@@ -142,26 +158,24 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             print(f"    [ERROR] Ошибка среза: {e}")
             continue
 
-    # 4. СБОРКА РЕЗУЛЬТАТА
+    # 4. ФИНАЛИЗАЦИЯ
     if not accumulated_spectra:
-        print("[PROCESSING] Данных нет после обработки.")
+        print("[PROCESSING] Данных нет.")
         return []
 
     all_spectra = np.array(accumulated_spectra)
     final_flux = np.nanmean(all_spectra, axis=0)
     
-    # Выбор оси X (Конфиг или Суррогат)
-    final_X = real_x_axis if real_x_axis is not None else X_centers
-    
-    # Финальная подгонка длин (на случай смешанных ошибок)
-    min_len = min(len(final_X), len(final_flux))
-    final_X = final_X[:min_len]
-    final_flux = final_flux[:min_len]
+    # Расчет ошибки
+    if len(accumulated_spectra) > 1:
+        final_err = np.nanstd(all_spectra, axis=0) / np.sqrt(len(accumulated_spectra))
+    else:
+        final_err = np.zeros_like(final_flux)
 
     valid_mask = ~np.isnan(final_flux) & (final_flux > 0)
     
     if not np.any(valid_mask):
-         print("[PROCESSING] Все данные NaN или 0.")
+         print("[PROCESSING] Все данные NaN/Zero.")
          return []
 
     print(f"[PROCESSING] График готов! Точек: {np.sum(valid_mask)}")
@@ -169,19 +183,18 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
     return [{
         "ax_index": ax_index,
         "type": "spectra",
-        "x_values": final_X[valid_mask],
+        "x_values": X_centers[valid_mask],
         "y_values": final_flux[valid_mask],
-        "y_err": np.zeros_like(final_flux[valid_mask]),
+        "y_err": final_err[valid_mask],
         "x_label": x_label,
-        "y_label": f"Flux ({var_name})",
+        "y_label": f"Flux",
         "x_scale": "log", "y_scale": "log",
-        "title": f"Spectrum (L={app_state.l}, P={app_state.pitch})",
-        "label": f"N_days={len(files)}"
+        "title": f"Spectrum (E={config_n_E} bins)",
+        "label": f"Days: {len(files)}"
     }]
 
 def get_plot_data(app_state, ax_index=0):
     pk = app_state.plot_kind
     if pk in [1, 2]: return _generic_1d_plot(app_state, ax_index)
-    elif pk == 12: return [] 
-    print(f"[WARN] PlotKind {pk} не поддерживается.")
+    elif pk == 12: return []
     return []

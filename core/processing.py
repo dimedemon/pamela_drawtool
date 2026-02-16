@@ -1,10 +1,13 @@
 """
-Модуль Обработки (Processing Module) - ROBUST STABLE
-Исправлены ошибки размерностей и вылетов Matplotlib.
-Гарантирует равенство длин X, Y и Errors.
+Модуль Обработки (Processing Module) - FINAL ROBUST v2
+Исправлено:
+1. Ошибка 'numpy has no attribute warnings' (для NumPy 1.24+).
+2. Ошибки размерностей массивов (Robust slicing).
+3. Авто-определение осей (Adaptive Axes).
 """
 import os
 import numpy as np
+import warnings  # <--- ДОБАВЛЕНО: Стандартный модуль вместо np.warnings
 from scipy.io import loadmat
 from . import config
 from . import state
@@ -27,7 +30,7 @@ def _find_bin_indices(edges, values):
 
 # --- ГЛАВНАЯ ФУНКЦИЯ ПОСТРОЕНИЯ ---
 def _generic_1d_plot(app_state, ax_index, mode='spectra'):
-    print(f"\n[PROCESSING] -> Старт обработки (Robust Mode)")
+    print(f"\n[PROCESSING] -> Старт обработки (Robust Mode v2)")
 
     # 1. ИНИЦИАЛИЗАЦИЯ ОСЕЙ
     try:
@@ -84,7 +87,6 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             continue
 
         # --- АДАПТИВНОЕ ОПРЕДЕЛЕНИЕ ОСЕЙ ---
-        # Ищем ось Энергии (совпадающую с конфигом) и ставим её на место 0
         shape = data_raw.shape
         dims = [0, 1, 2]
         
@@ -93,14 +95,11 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
         elif shape[1] == config_n_E: e_axis = 1
         elif shape[2] == config_n_E: e_axis = 2
         
-        # Если не нашли идеального совпадения, пробуем стандартную (0) или пропускаем
         if e_axis == -1:
-            # Fallback: если файл 16 энергий, а конфиг 6 -> пропускаем (или можно ресайзить)
-            # Для надежности сейчас пропустим, чтобы не ломать график
             print(f"    [WARN] Пропуск {os.path.basename(fpath)}: нет оси длины {config_n_E}. Shape={shape}")
             continue
             
-        # Распределяем L и Pitch (Pitch обычно меньше L)
+        # Распределяем L и Pitch
         rem_axes = [d for d in dims if d != e_axis]
         if shape[rem_axes[0]] < shape[rem_axes[1]]:
             p_axis, l_axis = rem_axes[0], rem_axes[1]
@@ -118,21 +117,17 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
             n_L = data_sorted.shape[1]
             n_P = data_sorted.shape[2]
             
-            # Берем только валидные индексы
             valid_L = [i for i in L_indices if i < n_L]
             valid_P = [i for i in P_indices if i < n_P]
             
             if not valid_L or not valid_P: continue
 
-            # Вырезаем куб
             subset = data_sorted[:, valid_L, :][:, :, valid_P]
-            
-            # Заменяем 0 на NaN и усредняем
             subset[subset == 0] = np.nan
             
-            # ВАЖНО: mean по осям 1 и 2 схлопывает L и P, оставляя Energy (ось 0)
-            with np.warnings.catch_warnings():
-                np.warnings.filterwarnings('ignore', category=RuntimeWarning)
+            # Используем стандартный warnings вместо np.warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
                 daily_spectrum = np.nanmean(subset, axis=(1, 2))
             
             accumulated_spectra.append(daily_spectrum)
@@ -148,30 +143,26 @@ def _generic_1d_plot(app_state, ax_index, mode='spectra'):
 
     all_spectra = np.array(accumulated_spectra)
     
-    with np.warnings.catch_warnings():
-        np.warnings.filterwarnings('ignore', category=RuntimeWarning)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
         final_flux = np.nanmean(all_spectra, axis=0)
-        # Ошибка: std / sqrt(N)
+        
         if len(accumulated_spectra) > 1:
             final_err = np.nanstd(all_spectra, axis=0) / np.sqrt(len(accumulated_spectra))
         else:
             final_err = np.zeros_like(final_flux)
 
-    # Используем ось X из конфига
     final_X = X_centers
 
-    # --- ГЛАВНОЕ ИСПРАВЛЕНИЕ (SAFETY CUT) ---
-    # Гарантируем, что все массивы имеют одинаковую длину перед маскированием
+    # --- SAFETY CUT (Гарантия равных длин) ---
     min_len = min(len(final_X), len(final_flux), len(final_err))
     
     final_X = final_X[:min_len]
     final_flux = final_flux[:min_len]
-    final_err = final_err[:min_len] # <--- ВОТ ЧТО МЫ ЗАБЫЛИ В ПРОШЛЫЙ РАЗ
+    final_err = final_err[:min_len]
 
-    # Маска валидных значений
     valid_mask = ~np.isnan(final_flux) & (final_flux > 0)
     
-    # Применяем маску ко всем трем массивам
     x_out = final_X[valid_mask]
     y_out = final_flux[valid_mask]
     err_out = final_err[valid_mask]

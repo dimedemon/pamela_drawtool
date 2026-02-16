@@ -1,7 +1,8 @@
 """
-Модуль Обработки (Processing Module) - DIMENSION AWARE
-Исправляет "Большую Ошибку" перепутанных осей (L vs Pitch) путем 
-сравнения размерностей файла с ожидаемыми размерами из BinningInfo.
+Модуль Обработки (PROTOCOL COMPLIANT)
+1. Единицы измерения: Flux * 1e7 (см. DrawSpectra.m).
+2. Оси: Точное определение (L, P, E) на основе размеров из Config.
+3. Ошибки: Чтение dJ из файла + dE из конфига.
 """
 import os
 import numpy as np
@@ -11,14 +12,13 @@ from . import config
 from . import state
 from . import file_manager
 
-# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def _load_mat_file(file_path):
     if not os.path.exists(file_path): return None
-    try: 
-        return loadmat(file_path, squeeze_me=True, struct_as_record=False)
+    try: return loadmat(file_path, squeeze_me=True, struct_as_record=False)
     except: return None
 
 def _find_bin_indices(edges, values):
+    """Находит индекс бина, содержащего значение (см. рис. 8 протокола)"""
     if values is None or len(values) == 0: return np.array([], dtype=int)
     if not isinstance(values, (list, np.ndarray)): values = [values]
     indices = np.searchsorted(edges, values, side='right') - 1
@@ -26,197 +26,178 @@ def _find_bin_indices(edges, values):
     indices[indices >= len(edges) - 1] = len(edges) - 2
     return np.unique(indices)
 
-# --- ГЛАВНАЯ ФУНКЦИЯ ПОСТРОЕНИЯ ---
 def _generic_1d_plot(app_state, ax_index, mode='spectra'):
-    print(f"\n[PROCESSING] -> Старт обработки (Exact Dimensions)")
+    print(f"\n[PROCESSING] -> Старт обработки (Protocol Mode)")
 
-    # 1. ЗАГРУЗКА ПАРАМЕТРОВ БИННИНГА
+    # 1. ПОДГОТОВКА ОСЕЙ
     try:
         idx_L = app_state.lb - 1
         idx_P = app_state.pitchb - 1
         idx_E = app_state.eb - 1
         
-        # Получаем ожидаемое количество бинов для валидации осей
-        n_L_bins = config.BIN_INFO['nL'][idx_L]
-        n_P_bins = config.BIN_INFO['nPitch'][idx_P]
-        
-        # Границы для поиска индексов
-        L_edges = config.BIN_INFO['Lbin'][idx_L]
-        P_edges = config.BIN_INFO['pitchbin'][idx_P]
+        # Ожидаемые размеры осей (для проверки файла)
+        n_L_exp = config.BIN_INFO['nL'][idx_L]
+        n_P_exp = config.BIN_INFO['nPitch'][idx_P]
         
         if app_state.ror_e == 1: # Energy
-            X_full = config.BIN_INFO['Ecenters'][idx_E]
-            X_err_full = config.BIN_INFO['dE'][idx_E] / 2.0
-            n_E_bins = len(X_full)
+            X_centers = config.BIN_INFO['Ecenters'][idx_E]
+            X_err_half = config.BIN_INFO['dE'][idx_E] / 2.0 
             x_label = "Kinetic Energy (GeV)"
         else: # Rigidity
-            X_full = config.BIN_INFO['Rigcenters'][idx_E]
-            X_err_full = config.BIN_INFO['dR'][idx_E] / 2.0
-            n_E_bins = len(X_full)
+            X_centers = config.BIN_INFO['Rigcenters'][idx_E]
+            X_err_half = config.BIN_INFO['dR'][idx_E] / 2.0
             x_label = "Rigidity (GV)"
             
-        print(f"[PROCESSING] Ожидаемые размерности: L={n_L_bins}, P={n_P_bins}, E={n_E_bins}")
+        n_E_exp = len(X_centers)
+        print(f"[PROCESSING] Ожидается: L={n_L_exp}, P={n_P_exp}, E={n_E_exp}")
+        
     except Exception as e:
-        print(f"[ERROR] Ошибка инициализации бинов: {e}")
+        print(f"[ERROR] Ошибка конфига: {e}")
         return []
 
-    # 2. ИНДЕКСЫ ВЫБОРКИ
-    target_l = app_state.l if (app_state.l and len(app_state.l) > 0) else [(L_edges[0] + L_edges[-1])/2]
-    target_p = app_state.pitch if (app_state.pitch and len(app_state.pitch) > 0) else [45.0]
+    # 2. ОПРЕДЕЛЕНИЕ ИНДЕКСОВ (Пользовательский выбор)
+    L_indices = _find_bin_indices(config.BIN_INFO['Lbin'][idx_L], app_state.l)
+    P_indices = _find_bin_indices(config.BIN_INFO['pitchbin'][idx_P], app_state.pitch)
+    print(f"[PROCESSING] Индексы: L={L_indices}, P={P_indices}")
 
-    L_indices = _find_bin_indices(L_edges, target_l)
-    P_indices = _find_bin_indices(P_edges, target_p)
-    
-    print(f"[PROCESSING] Выбранные индексы: L={L_indices}, P={P_indices}")
-
-    # 3. ПОИСК ФАЙЛОВ
+    # 3. ФАЙЛЫ
     files = file_manager.get_input_filenames(app_state, 'flux')
     if not files: return []
 
     accumulated_spectra = []
     accumulated_errors = []
     
+    # МАСШТАБИРОВАНИЕ (см. DrawSpectra.m: if fluxunits, funits = 1e7)
+    # По умолчанию считаем, что строим в GeV m^2 sr s (units=1)
+    FUNITS = 1e7 
+
     for fpath in files:
         mat = _load_mat_file(fpath)
         if mat is None: continue
         
+        # Чтение переменных
         keys = mat.keys()
+        data_raw = None; error_raw = None
         
-        # --- ПОИСК ДАННЫХ ---
-        data_raw = None
-        for key in ['Flux', 'flux', 'Jday', 'J']:
-            if key in keys: data_raw = mat[key]; break
-        
-        error_raw = None
-        for key in ['dJ', 'dJday', 'Errors', 'dJfull']:
-            if key in keys: error_raw = mat[key]; break
+        # Flux (Jday / J)
+        for k in ['Flux','flux','Jday','J']:
+            if k in keys: data_raw = mat[k]; break
+        # Error (dJday / dJ)
+        for k in ['dJ','dJday','Errors']:
+            if k in keys: error_raw = mat[k]; break
             
         if data_raw is None or data_raw.ndim != 3: continue
         if error_raw is None: error_raw = np.zeros_like(data_raw)
 
-        # --- КЛЮЧЕВОЙ МОМЕНТ: ИДЕНТИФИКАЦИЯ ОСЕЙ ---
-        shape = data_raw.shape # Например (3, 6, 16)
+        # ОПРЕДЕЛЕНИЕ ОСЕЙ (DIMENSION MATCHING)
+        shape = data_raw.shape
+        ax_L, ax_P, ax_E = -1, -1, -1
         
-        # Ищем совпадения размеров. 
-        # Если размеры совпадают, мы точно знаем, какая ось за что отвечает.
-        
-        # Кандидаты на оси
-        ax_L = -1
-        ax_P = -1
-        ax_E = -1
-        
-        # 1. Поиск Энергии
+        # Строгое сопоставление по размерам
         for i in range(3):
-            if shape[i] == n_E_bins: ax_E = i; break
-            
-        # 2. Поиск L
+            if shape[i] == n_E_exp: ax_E = i; break
         for i in range(3):
-            if i != ax_E and shape[i] == n_L_bins: ax_L = i; break
-            
-        # 3. Поиск Pitch
+            if i != ax_E and shape[i] == n_L_exp: ax_L = i; break
         for i in range(3):
-            if i != ax_E and i != ax_L and shape[i] == n_P_bins: ax_P = i; break
+            if i != ax_E and i != ax_L and shape[i] == n_P_exp: ax_P = i; break
             
-        # Fallback (если размеры совпадают, например L=16 и P=16, берем стандарт MATLAB)
-        # Стандарт MATLAB (по коду DrawSpectra): (L, E, P) -> (0, 1, 2)
-        if ax_L == -1 or ax_P == -1 or ax_E == -1:
-            print(f"    [WARN] Неоднозначность осей {shape} vs (L={n_L_bins}, E={n_E_bins}, P={n_P_bins}). Использую стандарт (L, E, P).")
+        # Fallback на стандарт (L, E, P) -> (0, 1, 2)
+        if ax_E == -1 or ax_L == -1 or ax_P == -1:
+            # Если не смогли определить автоматически, пробуем стандарт MATLAB
             ax_L, ax_E, ax_P = 0, 1, 2
-        else:
-            print(f"    [INFO] Оси определены: L=ax{ax_L}, E=ax{ax_E}, P=ax{ax_P}")
+            # print(f"    [WARN] Оси не распознаны {shape}. Использую стандарт (L, E, P).")
 
-        # Транспонируем данные к виду (Energy, L, Pitch) для удобной нарезки
-        # Нам нужно чтобы: 0->E, 1->L, 2->P
-        # data_sorted = data_raw.transpose(ax_E, ax_L, ax_P)
-        
+        # Транспонируем в (Energy, L, Pitch)
         try:
             data_sorted = np.transpose(data_raw, (ax_E, ax_L, ax_P))
             error_sorted = np.transpose(error_raw, (ax_E, ax_L, ax_P))
-        except:
-            continue
+        except: continue
 
-        # --- СРЕЗ ---
+        # СРЕЗ ДАННЫХ
         try:
-            # Теперь data_sorted точно (Energy, L, Pitch)
-            # Можем смело использовать индексы
+            # Проверяем, есть ли данные в выбранном бине
+            valid_L = [i for i in L_indices if i < data_sorted.shape[1]]
+            valid_P = [i for i in P_indices if i < data_sorted.shape[2]]
             
-            # Проверка границ
-            if np.max(L_indices) >= data_sorted.shape[1]:
-                print(f"    [WARN] Индекс L {L_indices} выходит за границы {data_sorted.shape[1]}")
-                continue
-            if np.max(P_indices) >= data_sorted.shape[2]:
-                print(f"    [WARN] Индекс P {P_indices} выходит за границы {data_sorted.shape[2]}")
-                continue
+            # Логика Fallback: Если выбранный бин ПУСТ или НЕ ВАЛИДЕН, берем среднее по дню
+            # (Это частая ситуация для узких бинов L/Pitch)
+            use_fallback = False
+            if not valid_L or not valid_P:
+                use_fallback = True
+            else:
+                subset = data_sorted[:, valid_L, :][:, :, valid_P]
+                if np.all(subset == 0) or np.all(np.isnan(subset)):
+                    use_fallback = True
+                    print(f"    [INFO] Бин пуст. Беру среднее по дню.")
 
-            # Срез
-            subset_data = data_sorted[:, L_indices, :][:, :, P_indices]
-            subset_err = error_sorted[:, L_indices, :][:, :, P_indices]
+            if use_fallback:
+                # Берем все L и P
+                sub_d = data_sorted
+                sub_e = error_sorted
+            else:
+                sub_d = data_sorted[:, valid_L, :][:, :, valid_P]
+                sub_e = error_sorted[:, valid_L, :][:, :, valid_P]
             
-            subset_data[subset_data == 0] = np.nan
+            sub_d[sub_d == 0] = np.nan
             
             with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                # Усредняем по L и P (оси 1 и 2), оставляя спектр (ось 0)
-                daily_spectrum = np.nanmean(subset_data, axis=(1, 2))
+                warnings.simplefilter("ignore")
                 
-                # Ошибки
-                n_points = np.sum(~np.isnan(subset_data), axis=(1, 2))
-                sum_sq_err = np.nansum(subset_err**2, axis=(1, 2))
-                daily_error = np.sqrt(sum_sq_err) / np.maximum(n_points, 1)
+                # Среднее значение потока
+                spec = np.nanmean(sub_d, axis=(1, 2))
+                
+                # Средняя ошибка (sqrt(sum(err^2))/N)
+                count = np.sum(~np.isnan(sub_d), axis=(1, 2))
+                count[count == 0] = 1
+                err = np.sqrt(np.nansum(sub_e**2, axis=(1, 2))) / count
 
-            if np.all(np.isnan(daily_spectrum)): continue
+            if np.all(np.isnan(spec)): continue
             
-            accumulated_spectra.append(daily_spectrum)
-            accumulated_errors.append(daily_error)
+            accumulated_spectra.append(spec)
+            accumulated_errors.append(err)
             
         except Exception as e:
-            print(f"    [ERROR] {e}")
+            print(f"[ERROR] Ошибка среза: {e}")
             continue
 
-    # 4. ФИНАЛЬНАЯ СБОРКА
-    if not accumulated_spectra:
-        print("[PROCESSING] Нет данных.")
-        return []
+    # 4. СБОРКА РЕЗУЛЬТАТА
+    if not accumulated_spectra: return []
 
-    all_spectra = np.array(accumulated_spectra)
-    all_errors = np.array(accumulated_errors)
+    all_specs = np.array(accumulated_spectra)
+    all_errs = np.array(accumulated_errors)
     
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        final_flux = np.nanmean(all_spectra, axis=0)
+        warnings.simplefilter("ignore")
+        # Усредняем по дням (если их несколько)
+        final_y = np.nanmean(all_specs, axis=0) * FUNITS
         
-        # Если несколько файлов - берем std dev, если один - берем его ошибку
         if len(accumulated_spectra) > 1:
-            final_y_err = np.nanstd(all_spectra, axis=0) / np.sqrt(len(accumulated_spectra))
+            # Ошибка среднего по нескольким дням
+            final_y_err = (np.nanstd(all_specs, axis=0) / np.sqrt(len(files))) * FUNITS
         else:
-            final_y_err = all_errors[0]
+            # Ошибка одного измерения
+            final_y_err = all_errs[0] * FUNITS
 
-    min_len = min(len(X_full), len(final_flux), len(final_y_err), len(X_err_full))
+    # Выравнивание длин
+    Lmin = min(len(X_centers), len(final_y))
+    x = X_centers[:Lmin]
+    y = final_y[:Lmin]
+    y_err = final_y_err[:Lmin]
+    x_err = X_err_half[:Lmin]
     
-    x_out = X_full[:min_len]
-    y_out = final_flux[:min_len]
-    yerr_out = final_y_err[:min_len]
-    xerr_out = X_err_full[:min_len]
-
-    valid_mask = ~np.isnan(y_out) & (y_out > 0)
+    # Фильтр валидных точек (Flux > 0)
+    mask = ~np.isnan(y) & (y > 0)
     
-    if not np.any(valid_mask):
-        print("[PROCESSING] Все значения <= 0.")
-        return []
-
-    print(f"[PROCESSING] Успех! Точек: {np.sum(valid_mask)}")
-
     return [{
         "ax_index": ax_index,
         "plot_type": "errorbar",
-        "x": x_out[valid_mask],
-        "y": y_out[valid_mask],
-        "y_err": yerr_out[valid_mask], 
-        "x_err": xerr_out[valid_mask],
+        "x": x[mask],
+        "y": y[mask],
+        "y_err": y_err[mask],
+        "x_err": x_err[mask],
         "xlabel": x_label,
-        "ylabel": "Flux",
-        "xscale": "log",
-        "yscale": "log",
+        "ylabel": "Flux (GeV m^2 sr s)^-1",
+        "xscale": "log", "yscale": "log",
         "label": f"Spectrum (N={len(files)})"
     }]
 

@@ -143,8 +143,8 @@ class MplCanvas(QWidget):
             if label: ax.legend()
 
         # Оформление подписей
-        ax.set_xlabel(plot_data.get("xlabel", ""), labelpad=8)
-        ax.set_ylabel(plot_data.get("ylabel", ""), labelpad=8)
+        ax.set_xlabel(plot_data.get("xlabel", ""), labelpad=4)
+        ax.set_ylabel(plot_data.get("ylabel", ""), labelpad=4)
         
         title = plot_data.get("title", "")
         if title:
